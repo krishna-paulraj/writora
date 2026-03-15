@@ -17,13 +17,34 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dashboard - Writora",
+  title: "Writora - Dashboard",
   description: "Manging blogs made easy",
+  keywords: [
+    "Next.js",
+    "nextjs template",
+    "nextjs theme",
+    "nextjs starter",
+    "shadcn template",
+    "shadcn theme",
+    "shadcn starter",
+    "tailwind template",
+    "tailwind theme",
+    "tailwind starter",
+    "mdx template",
+    "mdx theme",
+    "mdx starter",
+  ],
+  authors: [{ name: "shadcnblocks.com" }],
+  creator: "shadcnblocks.com",
+  publisher: "shadcnblocks.com",
+  robots: {
+    index: true,
+    follow: true,
+  },
   icons: {
     icon: "/logo.svg",
   },
 };
-
 export default function RootLayout({
   children,
 }: Readonly<{

@@ -63,8 +63,30 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Writora",
+  title: "Writora - Manging blogs made easy",
   description: "Manging blogs made easy",
+  keywords: [
+    "Next.js",
+    "nextjs template",
+    "nextjs theme",
+    "nextjs starter",
+    "shadcn template",
+    "shadcn theme",
+    "shadcn starter",
+    "tailwind template",
+    "tailwind theme",
+    "tailwind starter",
+    "mdx template",
+    "mdx theme",
+    "mdx starter",
+  ],
+  authors: [{ name: "shadcnblocks.com" }],
+  creator: "shadcnblocks.com",
+  publisher: "shadcnblocks.com",
+  robots: {
+    index: true,
+    follow: true,
+  },
   icons: {
     icon: "/logo.svg",
   },
