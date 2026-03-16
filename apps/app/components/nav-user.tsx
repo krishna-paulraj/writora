@@ -22,6 +22,21 @@ import {
 } from "@/components/ui/sidebar"
 import { EllipsisVerticalIcon, CircleUserRoundIcon, CreditCardIcon, BellIcon, LogOutIcon } from "lucide-react"
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+const WWW_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000"
+
+async function handleLogout() {
+  try {
+    await fetch(`${API_URL}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    })
+  } catch {
+    // proceed to redirect even if API call fails
+  }
+  window.location.href = `${WWW_URL}/login`
+}
+
 export function NavUser({
   user,
 }: {
@@ -94,7 +109,7 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout}>
               <LogOutIcon
               />
               Log out

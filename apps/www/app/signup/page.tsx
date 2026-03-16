@@ -1,14 +1,66 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
-
-import { FcGoogle } from "react-icons/fc";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { toast } from "sonner";
 
 import { Background } from "@/components/background";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
+const signupSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(8, "Must be at least 8 characters"),
+});
+
+type SignupForm = z.infer<typeof signupSchema>;
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
+
 const Signup = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<SignupForm>();
+
+  const onSubmit = async (data: SignupForm) => {
+    const parsed = signupSchema.safeParse(data);
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0].message);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        toast.error(error.message || "Registration failed");
+        return;
+      }
+
+      window.location.href = APP_URL;
+    } catch {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <Background>
       <section className="py-28 lg:pt-44 lg:pb-32">
@@ -29,27 +81,50 @@ const Signup = () => {
                 </p>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-4">
-                  <Input type="text" placeholder="Enter your name" required />
-                  <Input type="email" placeholder="Enter your email" required />
+                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+                  <div>
+                    <Input
+                      type="text"
+                      placeholder="Enter your name"
+                      {...register("name")}
+                    />
+                    {errors.name && (
+                      <p className="mt-1 text-sm text-red-500">
+                        {errors.name.message}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Input
+                      type="email"
+                      placeholder="Enter your email"
+                      {...register("email")}
+                    />
+                    {errors.email && (
+                      <p className="mt-1 text-sm text-red-500">
+                        {errors.email.message}
+                      </p>
+                    )}
+                  </div>
                   <div>
                     <Input
                       type="password"
                       placeholder="Enter your password"
-                      required
+                      {...register("password")}
                     />
                     <p className="text-muted-foreground mt-1 text-sm">
                       Must be at least 8 characters.
                     </p>
+                    {errors.password && (
+                      <p className="mt-1 text-sm text-red-500">
+                        {errors.password.message}
+                      </p>
+                    )}
                   </div>
-                  <Button type="submit" className="mt-2 w-full">
-                    Create an account
+                  <Button type="submit" className="mt-2 w-full" disabled={isLoading}>
+                    {isLoading ? "Creating account..." : "Create an account"}
                   </Button>
-                  <Button variant="outline" className="w-full">
-                    <FcGoogle className="mr-2 size-5" />
-                    Sign up with Google
-                  </Button>
-                </div>
+                </form>
                 <div className="text-muted-foreground mx-auto mt-8 flex justify-center gap-1 text-sm">
                   <p>Already have an account?</p>
                   <Link href="/login" className="text-primary font-medium">
