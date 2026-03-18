@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { useEffect, useState } from "react";
 
 import { NavDocuments } from "@/components/nav-documents";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 import {
   Sidebar,
   SidebarContent,
@@ -17,7 +20,6 @@ import {
 } from "@/components/ui/sidebar";
 import {
   LayoutDashboardIcon,
-  ListIcon,
   ChartBarIcon,
   FolderIcon,
   UsersIcon,
@@ -29,19 +31,12 @@ import {
   DatabaseIcon,
   FileChartColumnIcon,
   FileIcon,
-  CommandIcon,
-  CalculatorIcon,
   CalendarIcon,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
 const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
   navMain: [
     {
       title: "Dashboard",
@@ -154,6 +149,21 @@ const data = {
 };
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const [user, setUser] = useState({ name: "", email: "", avatar: "" });
+
+  useEffect(() => {
+    fetch(`${API_URL}/auth/me`, { credentials: "include" })
+      .then((res) => res.json())
+      .then((data) => {
+        setUser({
+          name: data.name || "",
+          email: data.email || "",
+          avatar: "",
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -183,7 +193,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={user} />
       </SidebarFooter>
     </Sidebar>
   );

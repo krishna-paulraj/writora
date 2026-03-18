@@ -8,8 +8,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as express from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { GoogleAuthGuard } from './google-auth.guard';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -23,7 +25,7 @@ export class AuthController {
   @Post('register')
   async register(
     @Body() dto: RegisterDto,
-    @Res({ passthrough: true }) res: any,
+    @Res({ passthrough: true }) res: express.Response,
   ) {
     const user = await this.authService.register(dto);
     const token = this.authService.generateToken(user);
@@ -34,7 +36,7 @@ export class AuthController {
   @Post('login')
   async login(
     @Body() dto: LoginDto,
-    @Res({ passthrough: true }) res: any,
+    @Res({ passthrough: true }) res: express.Response,
   ) {
     const user = await this.authService.validateUser(dto.email, dto.password);
     const token = this.authService.generateToken(user);
@@ -44,13 +46,41 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  async me(@Req() req: any) {
+  async me(@Req() req: express.Request) {
     const user = req.user as { id: string; email: string };
     return this.authService.getProfile(user.id);
   }
 
+  @UseGuards(GoogleAuthGuard)
+  @Get('google')
+  googleLogin() {
+    // Guard redirects to Google
+  }
+
+  @UseGuards(GoogleAuthGuard)
+  @Get('google/callback')
+  async googleCallback(
+    @Req() req: express.Request,
+    @Res() res: express.Response,
+  ) {
+    const googleUser = req.user as {
+      googleId: string;
+      email: string;
+      name: string;
+    };
+    const user = await this.authService.findOrCreateGoogleUser(googleUser);
+    const token = this.authService.generateToken(user);
+    this.setCookie(res, token);
+
+    const appUrl =
+      this.configService.get('NODE_ENV') === 'production'
+        ? 'https://app.writora.com'
+        : 'http://localhost:3001';
+    res.redirect(appUrl);
+  }
+
   @Post('logout')
-  logout(@Res({ passthrough: true }) res: any) {
+  logout(@Res({ passthrough: true }) res: express.Response) {
     res.clearCookie('token', {
       httpOnly: true,
       sameSite: 'lax',
@@ -59,7 +89,7 @@ export class AuthController {
     return { message: 'Logged out' };
   }
 
-  private setCookie(res: any, token: string) {
+  private setCookie(res: express.Response, token: string) {
     const isProduction = this.configService.get('NODE_ENV') === 'production';
     res.cookie('token', token, {
       httpOnly: true,
