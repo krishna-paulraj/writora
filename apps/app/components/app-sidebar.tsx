@@ -32,6 +32,7 @@ import {
   FileChartColumnIcon,
   FileIcon,
   CalendarIcon,
+  PenLineIcon,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -47,6 +48,11 @@ const data = {
       title: "Calendar",
       url: "/calendar",
       icon: <CalendarIcon />,
+    },
+    {
+      title: "Blogs",
+      url: "/blogs",
+      icon: <PenLineIcon />,
     },
     {
       title: "Analytics",

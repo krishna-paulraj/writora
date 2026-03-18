@@ -1,5 +1,6 @@
 import { Separator } from '@/components/ui/separator'
 
+import UsernameSetting from '@/components/shadcn-studio/blocks/account-settings-01/content/username-setting'
 import PersonalInfo from '@/components/shadcn-studio/blocks/account-settings-01/content/personal-info'
 import EmailPass from '@/components/shadcn-studio/blocks/account-settings-01/content/email-password'
 import ConnectAccount from '@/components/shadcn-studio/blocks/account-settings-01/content/connect-account'
@@ -10,6 +11,8 @@ const UserGeneral = () => {
   return (
     <section className='py-3'>
       <div className='mx-auto max-w-7xl'>
+        <UsernameSetting />
+        <Separator className='my-10' />
         <PersonalInfo />
         <Separator className='my-10' />
         <EmailPass />

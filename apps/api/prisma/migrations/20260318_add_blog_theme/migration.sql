@@ -1,0 +1,1 @@
+ALTER TABLE "User" ADD COLUMN "blogTheme" TEXT NOT NULL DEFAULT 'default';

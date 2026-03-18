@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Body,
   Res,
   Req,
@@ -49,6 +50,16 @@ export class AuthController {
   async me(@Req() req: express.Request) {
     const user = req.user as { id: string; email: string };
     return this.authService.getProfile(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  async updateMe(
+    @Req() req: express.Request,
+    @Body() data: { name?: string; username?: string; blogTheme?: string },
+  ) {
+    const user = req.user as { id: string };
+    return this.authService.updateProfile(user.id, data);
   }
 
   @UseGuards(GoogleAuthGuard)

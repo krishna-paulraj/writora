@@ -23,11 +23,13 @@ export class AuthService {
       throw new ConflictException('Email already in use');
     }
 
+    const username = await this.generateUsername(dto.name);
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
         email: dto.email,
+        username,
         password: hashedPassword,
       },
     });
@@ -62,7 +64,39 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
-    return { id: user.id, name: user.name, email: user.email };
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      username: user.username,
+      blogTheme: user.blogTheme,
+    };
+  }
+
+  async updateProfile(
+    userId: string,
+    data: { name?: string; username?: string; blogTheme?: string },
+  ) {
+    if (data.username) {
+      const existing = await this.prisma.user.findUnique({
+        where: { username: data.username },
+      });
+      if (existing && existing.id !== userId) {
+        throw new ConflictException('Username already taken');
+      }
+    }
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+    });
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      username: user.username,
+      blogTheme: user.blogTheme,
+    };
   }
 
   async findOrCreateGoogleUser(googleProfile: {
@@ -91,10 +125,12 @@ export class AuthService {
     }
 
     // Create new user
+    const username = await this.generateUsername(googleProfile.name);
     const user = await this.prisma.user.create({
       data: {
         name: googleProfile.name,
         email: googleProfile.email,
+        username,
         googleId: googleProfile.googleId,
       },
     });
@@ -105,7 +141,35 @@ export class AuthService {
     return this.jwtService.sign({ sub: user.id, email: user.email });
   }
 
-  private buildResponse(user: { id: string; name: string; email: string }) {
-    return { id: user.id, name: user.name, email: user.email };
+  private async generateUsername(name: string): Promise<string> {
+    const base = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .slice(0, 20);
+    let username = base || 'user';
+    let suffix = 0;
+
+    while (true) {
+      const candidate = suffix === 0 ? username : `${username}${suffix}`;
+      const existing = await this.prisma.user.findUnique({
+        where: { username: candidate },
+      });
+      if (!existing) return candidate;
+      suffix++;
+    }
+  }
+
+  private buildResponse(user: {
+    id: string;
+    name: string;
+    email: string;
+    username: string;
+  }) {
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      username: user.username,
+    };
   }
 }
