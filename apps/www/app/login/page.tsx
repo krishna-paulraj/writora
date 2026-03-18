@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { toast } from "sonner";
+import { FcGoogle } from "react-icons/fc";
 
 import { Background } from "@/components/background";
 import { Button } from "@/components/ui/button";
@@ -125,6 +126,17 @@ const Login = () => {
                   </div>
                   <Button type="submit" className="mt-2 w-full" disabled={isLoading}>
                     {isLoading ? "Signing in..." : "Sign in"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    type="button"
+                    onClick={() => {
+                      window.location.href = `${API_URL}/auth/google`;
+                    }}
+                  >
+                    <FcGoogle className="mr-2 size-5" />
+                    Sign in with Google
                   </Button>
                 </form>
                 <div className="text-muted-foreground mx-auto mt-8 flex justify-center gap-1 text-sm">

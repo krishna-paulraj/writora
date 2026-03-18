@@ -43,6 +43,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (!user.password) {
+      throw new UnauthorizedException('Please sign in with Google');
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
@@ -59,6 +63,42 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
     return { id: user.id, name: user.name, email: user.email };
+  }
+
+  async findOrCreateGoogleUser(googleProfile: {
+    googleId: string;
+    email: string;
+    name: string;
+  }) {
+    // Check if user already exists with this googleId
+    const existingByGoogleId = await this.prisma.user.findUnique({
+      where: { googleId: googleProfile.googleId },
+    });
+    if (existingByGoogleId) {
+      return this.buildResponse(existingByGoogleId);
+    }
+
+    // Check if user exists with same email (link accounts)
+    const existingByEmail = await this.prisma.user.findUnique({
+      where: { email: googleProfile.email },
+    });
+    if (existingByEmail) {
+      const updated = await this.prisma.user.update({
+        where: { id: existingByEmail.id },
+        data: { googleId: googleProfile.googleId },
+      });
+      return this.buildResponse(updated);
+    }
+
+    // Create new user
+    const user = await this.prisma.user.create({
+      data: {
+        name: googleProfile.name,
+        email: googleProfile.email,
+        googleId: googleProfile.googleId,
+      },
+    });
+    return this.buildResponse(user);
   }
 
   generateToken(user: { id: string; email: string }) {
