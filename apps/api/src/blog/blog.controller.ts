@@ -59,6 +59,14 @@ export class BlogController {
     return this.blogService.remove(id, user.id);
   }
 
+  // Preview (owner only)
+  @UseGuards(JwtAuthGuard)
+  @Get('preview/:slug')
+  preview(@Req() req: express.Request, @Param('slug') slug: string) {
+    const user = req.user as { id: string };
+    return this.blogService.previewBySlug(user.id, slug);
+  }
+
   // Public routes
   @Get('public/:username')
   findPublicByUsername(@Param('username') username: string) {

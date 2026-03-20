@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 
-import { NavDocuments } from "@/components/nav-documents";
+import { NavNotifications } from "@/components/nav-notifications";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
@@ -21,21 +21,22 @@ import {
 import {
   LayoutDashboardIcon,
   ChartBarIcon,
-  FolderIcon,
-  UsersIcon,
   CameraIcon,
   FileTextIcon,
   Settings2Icon,
   CircleHelpIcon,
   SearchIcon,
-  DatabaseIcon,
-  FileChartColumnIcon,
-  FileIcon,
   CalendarIcon,
   PenLineIcon,
+  MailIcon,
+  BotMessageSquareIcon,
+  MessageCircleCheckIcon,
 } from "lucide-react";
+import { FaWordpress } from "react-icons/fa";
+import { FaXTwitter, FaMedium, FaDiscord, FaTelegram } from "react-icons/fa6";
 import Image from "next/image";
 import Link from "next/link";
+import { NavAutopost } from "./nav-autopost";
 
 const data = {
   navMain: [
@@ -58,16 +59,6 @@ const data = {
       title: "Analytics",
       url: "/analytics",
       icon: <ChartBarIcon />,
-    },
-    {
-      title: "Projects",
-      url: "#",
-      icon: <FolderIcon />,
-    },
-    {
-      title: "Team",
-      url: "#",
-      icon: <UsersIcon />,
     },
   ],
   navClouds: [
@@ -135,21 +126,43 @@ const data = {
       icon: <SearchIcon />,
     },
   ],
+  navAutopost: [
+    {
+      name: "WordPress",
+      url: "#",
+      icon: <FaWordpress />,
+    },
+    {
+      name: "Medium",
+      url: "#",
+      icon: <FaMedium />,
+    },
+    {
+      name: "X (formerly Twitter)",
+      url: "#",
+      icon: <FaXTwitter />,
+    },
+    {
+      name: "Newsletter",
+      url: "#",
+      icon: <MailIcon />,
+    },
+  ],
   documents: [
     {
-      name: "Data Library",
+      name: "Email",
       url: "#",
-      icon: <DatabaseIcon />,
+      icon: <MailIcon />,
     },
     {
-      name: "Reports",
+      name: "Discord",
       url: "#",
-      icon: <FileChartColumnIcon />,
+      icon: <FaDiscord />,
     },
     {
-      name: "Word Assistant",
+      name: "Telegram",
       url: "#",
-      icon: <FileIcon />,
+      icon: <FaTelegram />,
     },
   ],
 };
@@ -195,7 +208,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
-        <NavDocuments items={data.documents} />
+        <NavAutopost items={data.navAutopost} />
+        <NavNotifications items={data.documents} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>

@@ -81,6 +81,35 @@ export class BlogService {
     return this.prisma.blog.delete({ where: { id } });
   }
 
+  // Preview (owner only, works for drafts)
+  async previewBySlug(authorId: string, slug: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: authorId },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const blog = await this.prisma.blog.findUnique({
+      where: { authorId_slug: { authorId, slug } },
+      include: {
+        author: { select: { id: true, name: true, username: true } },
+      },
+    });
+    if (!blog) {
+      throw new NotFoundException('Blog not found');
+    }
+
+    return {
+      blog,
+      blogTheme: user.blogTheme,
+      previousPost: null,
+      nextPost: null,
+      relatedPosts: [],
+      draft: !blog.published,
+    };
+  }
+
   // Public endpoints
   async findPublicByUsername(username: string) {
     const user = await this.prisma.user.findUnique({

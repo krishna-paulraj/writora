@@ -8,7 +8,9 @@ import {
   TrashIcon,
   EyeIcon,
   EyeOffIcon,
+  ExternalLinkIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,8 +24,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const WWW_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
 
 interface Blog {
   id: string;
@@ -41,6 +55,7 @@ export default function BlogsPage() {
   const router = useRouter();
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState("");
 
   const fetchBlogs = async () => {
     try {
@@ -58,24 +73,37 @@ export default function BlogsPage() {
 
   useEffect(() => {
     fetchBlogs();
+    fetch(`${API_URL}/auth/me`, { credentials: "include" })
+      .then((res) => res.json())
+      .then((data) => setUsername(data.username || ""))
+      .catch(() => {});
   }, []);
 
   const togglePublish = async (blog: Blog) => {
-    await fetch(`${API_URL}/blogs/${blog.id}`, {
+    const res = await fetch(`${API_URL}/blogs/${blog.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ published: !blog.published }),
     });
+    if (res.ok) {
+      toast.success(blog.published ? "Blog unpublished" : "Blog published");
+    } else {
+      toast.error("Failed to update blog");
+    }
     fetchBlogs();
   };
 
   const deleteBlog = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this blog?")) return;
-    await fetch(`${API_URL}/blogs/${id}`, {
+    const res = await fetch(`${API_URL}/blogs/${id}`, {
       method: "DELETE",
       credentials: "include",
     });
+    if (res.ok) {
+      toast.success("Blog deleted");
+    } else {
+      toast.error("Failed to delete blog");
+    }
     fetchBlogs();
   };
 
@@ -86,7 +114,7 @@ export default function BlogsPage() {
         <div className="flex flex-col gap-4 p-4 lg:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-semibold">Your Blogs</h2>
+              <h2 className="text-2xl font-semibold">My Blogs</h2>
               <p className="text-muted-foreground text-sm">
                 Create and manage your blog posts
               </p>
@@ -130,9 +158,7 @@ export default function BlogsPage() {
                         <Badge variant="secondary">{blog.category}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={blog.published ? "default" : "outline"}
-                        >
+                        <Badge variant={blog.published ? "default" : "outline"}>
                           {blog.published ? "Published" : "Draft"}
                         </Badge>
                       </TableCell>
@@ -145,9 +171,7 @@ export default function BlogsPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => togglePublish(blog)}
-                            title={
-                              blog.published ? "Unpublish" : "Publish"
-                            }
+                            title={blog.published ? "Unpublish" : "Publish"}
                           >
                             {blog.published ? (
                               <EyeOffIcon className="size-4" />
@@ -164,13 +188,52 @@ export default function BlogsPage() {
                           >
                             <PencilIcon className="size-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteBlog(blog.id)}
-                          >
-                            <TrashIcon className="size-4" />
-                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Delete"
+                              >
+                                <TrashIcon className="size-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Delete blog post?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will permanently delete &quot;{blog.title}&quot;. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteBlog(blog.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                          {username && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              asChild
+                              title="Preview"
+                            >
+                              <a
+                                href={`${WWW_URL}/${username}/${blog.slug}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <ExternalLinkIcon className="size-4" />
+                              </a>
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

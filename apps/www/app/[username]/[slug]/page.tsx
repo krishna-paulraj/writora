@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -14,8 +15,38 @@ import { DynamicToc } from "@/components/blog/dynamic-toc";
 import { MarkdownRenderer } from "@/components/blog/markdown-renderer";
 import { PostNavigation } from "@/components/blog/post-navigation";
 import { RelatedPosts } from "@/components/blog/related-posts";
+import { DraftBanner } from "@/components/blog/draft-banner";
+import { ViewTracker } from "@/components/blog/view-tracker";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
+async function fetchBlog(username: string, slug: string) {
+  // Try public endpoint first
+  const publicRes = await fetch(
+    `${API_URL}/blogs/public/${username}/${slug}`,
+    { cache: "no-store" },
+  );
+
+  if (publicRes.ok) {
+    const data = await publicRes.json();
+    return { ...data, draft: false };
+  }
+
+  // If not found, try authenticated preview (for draft posts)
+  const cookieStore = await cookies();
+  const token = cookieStore.get("token")?.value;
+  if (!token) return null;
+
+  const previewRes = await fetch(`${API_URL}/blogs/preview/${slug}`, {
+    cache: "no-store",
+    headers: { Cookie: `token=${token}` },
+  });
+
+  if (!previewRes.ok) return null;
+
+  const data = await previewRes.json();
+  return { ...data, draft: true };
+}
 
 export default async function BlogDetailPage({
   params,
@@ -24,16 +55,11 @@ export default async function BlogDetailPage({
 }) {
   const { username, slug } = await params;
 
-  const res = await fetch(`${API_URL}/blogs/public/${username}/${slug}`, {
-    cache: "no-store",
-  });
+  const data = await fetchBlog(username, slug);
+  if (!data) notFound();
 
-  if (!res.ok) {
-    notFound();
-  }
-
-  const data = await res.json();
-  const { blog, blogTheme, previousPost, nextPost, relatedPosts } = data;
+  const { blog, blogTheme, previousPost, nextPost, relatedPosts, draft } =
+    data;
 
   const date = new Date(blog.createdAt).toLocaleDateString("en-US", {
     year: "numeric",
@@ -49,8 +75,10 @@ export default async function BlogDetailPage({
 
   return (
     <BlogThemeProvider themeId={blogTheme || "default"}>
+      {!draft && <ViewTracker blogId={blog.id} />}
+      {draft && <DraftBanner />}
       <section className="py-8 sm:pt-16 sm:pb-24">
-        <div className="mx-auto max-w-7xl space-y-8 px-4 sm:px-6 lg:space-y-16 lg:px-8 mt-18">
+        <div className="mx-auto mt-18 max-w-7xl space-y-8 px-4 sm:px-6 lg:space-y-16 lg:px-8">
           <div className="gap-16 md:grid md:grid-cols-5 lg:grid-cols-7">
             <div className="hidden md:col-span-2 md:block lg:col-span-2">
               <DynamicToc />
@@ -144,17 +172,19 @@ export default async function BlogDetailPage({
                 <MarkdownRenderer content={blog.content} />
               </article>
 
-              <PostNavigation
-                username={username}
-                previousPost={previousPost}
-                nextPost={nextPost}
-              />
+              {!draft && (
+                <PostNavigation
+                  username={username}
+                  previousPost={previousPost}
+                  nextPost={nextPost}
+                />
+              )}
             </div>
           </div>
         </div>
       </section>
 
-      <RelatedPosts posts={relatedPosts} username={username} />
+      {!draft && <RelatedPosts posts={relatedPosts} username={username} />}
     </BlogThemeProvider>
   );
 }

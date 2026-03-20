@@ -7,33 +7,46 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  username  String   @unique
-  password  String?
-  googleId  String?  @unique
-  blogTheme String   @default("default")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  blogs     Blog[]
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  username     String   @unique
+  password     String?
+  googleId     String?  @unique
+  blogTheme    String   @default("default")
+  customDomain String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  blogs        Blog[]
 }
 
 model Blog {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   slug        String
   title       String
   description String
   content     String
   imageUrl    String?
   category    String
-  readTime    Int      @default(5)
-  featured    Boolean  @default(false)
-  published   Boolean  @default(false)
+  readTime    Int        @default(5)
+  featured    Boolean    @default(false)
+  published   Boolean    @default(false)
   authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  author      User       @relation(fields: [authorId], references: [id])
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  views       BlogView[]
 
   @@unique([authorId, slug])
+}
+
+model BlogView {
+  id        String   @id @default(cuid())
+  blogId    String
+  blog      Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([blogId])
+  @@index([createdAt])
+  @@index([blogId, createdAt])
 }

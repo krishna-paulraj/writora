@@ -5,6 +5,7 @@ import PersonalInfo from '@/components/shadcn-studio/blocks/account-settings-01/
 import EmailPass from '@/components/shadcn-studio/blocks/account-settings-01/content/email-password'
 import ConnectAccount from '@/components/shadcn-studio/blocks/account-settings-01/content/connect-account'
 import SocialUrl from '@/components/shadcn-studio/blocks/account-settings-01/content/social-url'
+import CustomDomainSetting from '@/components/shadcn-studio/blocks/account-settings-01/content/custom-domain-setting'
 import DangerZone from '@/components/shadcn-studio/blocks/account-settings-01/content/danger-zone'
 
 const UserGeneral = () => {
@@ -12,6 +13,8 @@ const UserGeneral = () => {
     <section className='py-3'>
       <div className='mx-auto max-w-7xl'>
         <UsernameSetting />
+        <Separator className='my-10' />
+        <CustomDomainSetting />
         <Separator className='my-10' />
         <PersonalInfo />
         <Separator className='my-10' />

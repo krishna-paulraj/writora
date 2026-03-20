@@ -56,7 +56,7 @@ export class AuthController {
   @Patch('me')
   async updateMe(
     @Req() req: express.Request,
-    @Body() data: { name?: string; username?: string; blogTheme?: string },
+    @Body() data: { name?: string; username?: string; blogTheme?: string; customDomain?: string },
   ) {
     const user = req.user as { id: string };
     return this.authService.updateProfile(user.id, data);

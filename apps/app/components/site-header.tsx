@@ -1,6 +1,7 @@
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ModeToggle } from "@/components/theme-toggle";
+import { NotificationInbox } from "@/components/notification-inbox";
 
 interface Props {
   title?: string;
@@ -17,7 +18,10 @@ export function SiteHeader({ title }: Props) {
         />
         <h1 className="text-base font-medium">{title ?? ""}</h1>
       </div>
-      <ModeToggle />
+      <div className="flex items-center gap-2 pr-4 lg:pr-6">
+        <NotificationInbox />
+        <ModeToggle />
+      </div>
     </header>
   );
 }

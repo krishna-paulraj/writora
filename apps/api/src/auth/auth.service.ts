@@ -70,12 +70,13 @@ export class AuthService {
       email: user.email,
       username: user.username,
       blogTheme: user.blogTheme,
+      customDomain: user.customDomain,
     };
   }
 
   async updateProfile(
     userId: string,
-    data: { name?: string; username?: string; blogTheme?: string },
+    data: { name?: string; username?: string; blogTheme?: string; customDomain?: string },
   ) {
     if (data.username) {
       const existing = await this.prisma.user.findUnique({
@@ -96,6 +97,7 @@ export class AuthService {
       email: user.email,
       username: user.username,
       blogTheme: user.blogTheme,
+      customDomain: user.customDomain,
     };
   }
 
