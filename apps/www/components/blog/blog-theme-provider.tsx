@@ -1,7 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { themePresets } from "./theme-presets";
 
 interface BlogThemeProviderProps {
@@ -15,6 +15,7 @@ export function BlogThemeProvider({
 }: BlogThemeProviderProps) {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const scopeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -23,11 +24,14 @@ export function BlogThemeProvider({
   const vars = preset[mode];
   const fonts = preset.font;
 
-  // Load Google Fonts and apply theme vars to <body>
   useEffect(() => {
-    if (themeId === "default" || Object.keys(vars).length === 0) return;
+    // Target the .blog-scope element so font vars override the next/font defaults
+    const scope = scopeRef.current?.closest(".blog-scope") as HTMLElement | null;
+    const body = document.body;
+    const appliedOnBody: string[] = [];
+    const appliedOnScope: string[] = [];
 
-    // Load fonts
+    // Load Google Fonts
     const fontFamilies = [fonts.sans, fonts.serif, fonts.mono]
       .filter(Boolean)
       .map((f) => f.replace(/ /g, "+"))
@@ -44,34 +48,42 @@ export function BlogThemeProvider({
     }
     link.href = `https://fonts.googleapis.com/css2?${fontFamilies}&display=swap`;
 
-    // Apply CSS variables to <body> so navbar inherits them too
-    const body = document.body;
+    // Apply color/theme CSS variables on body
     const entries = Object.entries(vars);
     for (const [key, value] of entries) {
       body.style.setProperty(key, value);
+      appliedOnBody.push(key);
     }
-    body.style.setProperty("--font-blog-sans", `"${fonts.sans}", ui-sans-serif, system-ui, sans-serif`);
-    body.style.setProperty("--font-blog-serif", `"${fonts.serif}", ui-serif, Georgia, serif`);
-    body.style.setProperty("--font-blog-mono", `"${fonts.mono}", ui-monospace, monospace`);
+
+    // Apply font CSS variables on the blog-scope element (overrides next/font class vars)
+    const target = scope || body;
+    const fontVars: Record<string, string> = {
+      "--font-blog-sans": `"${fonts.sans}", ui-sans-serif, system-ui, sans-serif`,
+      "--font-blog-serif": `"${fonts.serif}", ui-serif, Georgia, serif`,
+      "--font-blog-mono": `"${fonts.mono}", ui-monospace, monospace`,
+    };
+
+    for (const [key, value] of Object.entries(fontVars)) {
+      target.style.setProperty(key, value);
+      appliedOnScope.push(key);
+    }
+
+    // Also set aliases on body for global CSS that uses these
     body.style.setProperty("--display-family", `"${fonts.serif}", ui-serif, Georgia, serif`);
     body.style.setProperty("--text-family", `"${fonts.sans}", ui-sans-serif, system-ui, sans-serif`);
     body.style.setProperty("--font-display", `"${fonts.serif}", ui-serif, Georgia, serif`);
     body.style.setProperty("--font-text", `"${fonts.sans}", ui-sans-serif, system-ui, sans-serif`);
+    appliedOnBody.push("--display-family", "--text-family", "--font-display", "--font-text");
 
     return () => {
-      // Cleanup: remove all applied properties on unmount
-      for (const [key] of entries) {
+      for (const key of appliedOnBody) {
         body.style.removeProperty(key);
       }
-      body.style.removeProperty("--font-blog-sans");
-      body.style.removeProperty("--font-blog-serif");
-      body.style.removeProperty("--font-blog-mono");
-      body.style.removeProperty("--display-family");
-      body.style.removeProperty("--text-family");
-      body.style.removeProperty("--font-display");
-      body.style.removeProperty("--font-text");
+      for (const key of appliedOnScope) {
+        target.style.removeProperty(key);
+      }
     };
   }, [themeId, vars, fonts, mode]);
 
-  return <>{children}</>;
+  return <div ref={scopeRef}>{children}</div>;
 }

@@ -36,13 +36,13 @@ export default function BlogLayout({
         <style>{`
         .blog-scope {
           font-family: var(--font-blog-sans), ui-sans-serif, system-ui, sans-serif;
-          --font-display: var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
-          --font-text: var(--font-blog-sans), ui-sans-serif, system-ui, sans-serif;
+          --display-family: var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+          --text-family: var(--font-blog-sans), ui-sans-serif, system-ui, sans-serif;
           --font-sans: var(--font-blog-sans), ui-sans-serif, system-ui, sans-serif;
           --font-serif: var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
           --font-mono: var(--font-blog-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          --display-family: var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
-          --text-family: var(--font-blog-sans), ui-sans-serif, system-ui, sans-serif;
+          --font-display: var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+          --font-text: var(--font-blog-sans), ui-sans-serif, system-ui, sans-serif;
         }
         .blog-scope h1,
         .blog-scope h2,

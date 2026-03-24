@@ -25,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CategoryCombobox } from "@/components/category-combobox";
 
 const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
 
@@ -251,13 +252,10 @@ export default function EditBlogPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Category</Label>
-                  <Input
+                  <CategoryCombobox
                     value={form.category}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        category: e.target.value,
-                      }))
+                    onChange={(category) =>
+                      setForm((prev) => ({ ...prev, category }))
                     }
                     className="h-8 text-sm"
                   />

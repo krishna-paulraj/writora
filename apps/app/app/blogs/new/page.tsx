@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CategoryCombobox } from "@/components/category-combobox";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -122,14 +123,12 @@ export default function NewBlogPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="category">Category</Label>
-              <Input
-                id="category"
+              <Label>Category</Label>
+              <CategoryCombobox
                 value={form.category}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, category: e.target.value }))
+                onChange={(category) =>
+                  setForm((prev) => ({ ...prev, category }))
                 }
-                placeholder="e.g. Design, Product, Engineering"
               />
             </div>
 
