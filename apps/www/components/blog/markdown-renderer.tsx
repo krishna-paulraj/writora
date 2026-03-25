@@ -4,33 +4,19 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 
-const serifFont =
-  "var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif";
-const monoFont =
-  "var(--font-blog-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-
 const components: Components = {
   h1: ({ children }) => (
-    <h1
-      className="text-foreground mt-16 mb-6 scroll-mt-20 text-3xl font-semibold"
-      style={{ fontFamily: serifFont }}
-    >
+    <h1 className="text-foreground mt-16 mb-6 scroll-mt-20 font-serif text-3xl font-semibold">
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2
-      className="text-foreground mt-16 mb-4 scroll-mt-20 text-2xl font-semibold"
-      style={{ fontFamily: serifFont }}
-    >
+    <h2 className="text-foreground mt-16 mb-4 scroll-mt-20 font-serif text-2xl font-semibold">
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3
-      className="text-foreground mb-4 scroll-mt-20 text-xl font-medium"
-      style={{ fontFamily: serifFont }}
-    >
+    <h3 className="text-foreground mb-4 scroll-mt-20 font-serif text-xl font-medium">
       {children}
     </h3>
   ),
@@ -57,19 +43,13 @@ const components: Components = {
     const isBlock = className?.includes("language-");
     if (isBlock) {
       return (
-        <code
-          className="bg-muted block overflow-x-auto rounded-lg p-4 text-sm"
-          style={{ fontFamily: monoFont }}
-        >
+        <code className="bg-muted block overflow-x-auto rounded-lg font-mono p-4 text-sm">
           {children}
         </code>
       );
     }
     return (
-      <code
-        className="bg-muted rounded px-1.5 py-0.5 text-sm"
-        style={{ fontFamily: monoFont }}
-      >
+      <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-sm">
         {children}
       </code>
     );

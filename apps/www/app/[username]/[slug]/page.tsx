@@ -107,11 +107,7 @@ export default async function BlogDetailPage({
                 </Breadcrumb>
 
                 <h1
-                  className="text-foreground text-4xl font-semibold"
-                  style={{
-                    fontFamily:
-                      "var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
-                  }}
+                  className="text-foreground text-4xl font-semibold font-serif"
                 >
                   {blog.title}
                 </h1>

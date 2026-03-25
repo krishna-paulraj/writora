@@ -18,11 +18,7 @@ export function RelatedPosts({ posts, username }: RelatedPostsProps) {
         <div className="space-y-4">
           <Badge variant="outline">Trending</Badge>
           <h2
-            className="text-2xl font-semibold md:text-3xl lg:text-4xl"
-            style={{
-              fontFamily:
-                "var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
-            }}
+            className="text-2xl font-semibold font-serif md:text-3xl lg:text-4xl"
           >
             Related Posts
           </h2>

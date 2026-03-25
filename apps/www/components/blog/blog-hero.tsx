@@ -23,11 +23,7 @@ export function BlogHero({ user, featuredPosts }: BlogHeroProps) {
             {user.name}&apos;s Blog
           </Badge>
           <h1
-            className="text-3xl leading-[1.29167] font-semibold text-balance sm:text-4xl lg:text-5xl"
-            style={{
-              fontFamily:
-                "var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
-            }}
+            className="text-3xl leading-[1.29167] font-semibold text-balance font-serif sm:text-4xl lg:text-5xl"
           >
             Featured Posts
           </h1>

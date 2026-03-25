@@ -34,11 +34,7 @@ export function BlogGrid({ posts, username }: BlogGridProps) {
       <div className="mx-auto max-w-7xl space-y-8 px-4 sm:px-6 lg:space-y-16 lg:px-8">
         <div className="space-y-4">
           <h2
-            className="text-2xl font-semibold md:text-3xl lg:text-4xl"
-            style={{
-              fontFamily:
-                "var(--font-blog-serif), ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
-            }}
+            className="text-2xl font-semibold font-serif md:text-3xl lg:text-4xl"
           >
             All Posts
           </h2>
