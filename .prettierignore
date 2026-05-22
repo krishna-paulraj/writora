@@ -1,0 +1,27 @@
+# Dependencies & build output
+node_modules
+.pnp
+.pnp.js
+**/.next
+**/.turbo
+**/dist
+**/build
+**/coverage
+
+# Generated
+**/*.generated.*
+apps/api/prisma/migrations
+**/pnpm-lock.yaml
+**/package-lock.json
+**/yarn.lock
+
+# Don't reformat the theme registry CSS (auto-generated from tweakcn)
+apps/www/styles/themes
+apps/app/styles/themes
+
+# Uploaded files
+apps/api/uploads
+
+# Misc
+.DS_Store
+*.log

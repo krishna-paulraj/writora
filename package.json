@@ -5,20 +5,37 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "lint:fix": "turbo run lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "check-types": "turbo run check-types",
+    "check": "pnpm format:check && pnpm lint && pnpm check-types"
   },
   "devDependencies": {
     "prettier": "^3.7.4",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.8.17",
     "typescript": "5.9.2"
   },
   "engines": {
     "node": ">=18"
   },
-  "packageManager": "npm@10.9.4",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+  "packageManager": "pnpm@10.28.1",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/engines",
+      "bcrypt",
+      "msw",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ],
+    "overrides": {
+      "@types/react": "19.2.2",
+      "@types/react-dom": "19.2.2",
+      "react": "19.2.0",
+      "react-dom": "19.2.0"
+    }
+  }
 }

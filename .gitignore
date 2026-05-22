@@ -33,6 +33,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# User uploads (handled by api in dev; production should use object storage)
+apps/api/uploads/
+
 # Misc
 .DS_Store
 *.pem
