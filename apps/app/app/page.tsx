@@ -143,7 +143,7 @@ export default function DashboardPage() {
               </CardAction>
             </CardHeader>
             <CardFooter className="flex-col items-start gap-1.5 text-sm">
-              <div className="line-clamp-1 items-center flex gap-2 font-medium">
+              <div className="line-clamp-1 flex items-center gap-2 font-medium">
                 {data.viewsTrend >= 0 ? "Trending up" : "Trending down"} this
                 week
                 {data.viewsTrend >= 0 ? (
@@ -169,7 +169,7 @@ export default function DashboardPage() {
               </CardAction>
             </CardHeader>
             <CardFooter className="flex-col items-start gap-1 text-sm">
-              <div className="line-clamp-1 flex items-center  gap-2 font-medium">
+              <div className="line-clamp-1 flex items-center gap-2 font-medium">
                 Weekly performance
                 <EyeIcon className="size-4" />
               </div>
@@ -225,7 +225,7 @@ export default function DashboardPage() {
               </CardAction>
             </CardHeader>
             <CardFooter className="flex-col items-start gap-1.5 text-sm">
-              <div className="line-clamp-1 items-center flex gap-2 font-medium">
+              <div className="line-clamp-1 flex items-center gap-2 font-medium">
                 Publication ratio
                 <FileTextIcon className="size-4" />
               </div>

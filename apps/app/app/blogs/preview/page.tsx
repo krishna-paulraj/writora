@@ -34,9 +34,7 @@ const mdComponents: Components = {
     <ul className="mb-4 list-inside list-disc space-y-2 pl-2">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="mb-4 list-inside list-decimal space-y-2 pl-2">
-      {children}
-    </ol>
+    <ol className="mb-4 list-inside list-decimal space-y-2 pl-2">{children}</ol>
   ),
   li: ({ children }) => (
     <li className="text-muted-foreground leading-7">{children}</li>
@@ -56,9 +54,7 @@ const mdComponents: Components = {
       );
     }
     return (
-      <code className="bg-muted rounded px-1.5 py-0.5 text-sm">
-        {children}
-      </code>
+      <code className="bg-muted rounded px-1.5 py-0.5 text-sm">{children}</code>
     );
   },
   pre: ({ children }) => <pre className="my-4">{children}</pre>,
@@ -189,9 +185,19 @@ export default function PreviewPage() {
         )}
 
         <article className="mt-12 space-y-4">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-            {blog.content}
-          </ReactMarkdown>
+          {blog.content.trim().startsWith("<") ? (
+            <div
+              className="blog-html-content"
+              dangerouslySetInnerHTML={{ __html: blog.content }}
+            />
+          ) : (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={mdComponents}
+            >
+              {blog.content}
+            </ReactMarkdown>
+          )}
         </article>
       </div>
     </div>

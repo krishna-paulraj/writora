@@ -69,7 +69,7 @@ export function NotificationInbox() {
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground h-auto p-0 text-xs hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground h-auto p-0 text-xs"
               onClick={markAllAsRead}
             >
               Mark all as read
@@ -87,7 +87,7 @@ export function NotificationInbox() {
             notifications.map((notification) => (
               <div
                 key={notification.id}
-                className={`group flex gap-3 px-4 py-3 transition-colors hover:bg-muted/50 ${
+                className={`group hover:bg-muted/50 flex gap-3 px-4 py-3 transition-colors ${
                   !notification.read ? "bg-primary/5" : ""
                 }`}
               >
@@ -97,7 +97,7 @@ export function NotificationInbox() {
                   }`}
                 />
                 <div className="flex-1 space-y-1">
-                  <p className="text-sm font-medium leading-none">
+                  <p className="text-sm leading-none font-medium">
                     {notification.title}
                   </p>
                   <p className="text-muted-foreground text-xs leading-relaxed">

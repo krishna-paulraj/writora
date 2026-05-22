@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   PlusIcon,
@@ -9,6 +9,7 @@ import {
   EyeIcon,
   EyeOffIcon,
   ExternalLinkIcon,
+  SearchIcon,
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -49,6 +50,8 @@ interface Blog {
   description: string;
   category: string;
   published: boolean;
+  scheduledAt: string | null;
+  publishedAt: string | null;
   featured: boolean;
   createdAt: string;
   updatedAt: string;
@@ -68,6 +71,26 @@ export default function BlogsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "published" | "scheduled" | "draft"
+  >("all");
+
+  const filteredBlogs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return blogs.filter((b) => {
+      if (statusFilter === "published" && !b.published) return false;
+      if (statusFilter === "scheduled" && !b.scheduledAt) return false;
+      if (statusFilter === "draft" && (b.published || b.scheduledAt))
+        return false;
+      if (!q) return true;
+      return (
+        b.title.toLowerCase().includes(q) ||
+        b.description.toLowerCase().includes(q) ||
+        b.category.toLowerCase().includes(q)
+      );
+    });
+  }, [blogs, search, statusFilter]);
 
   const fetchCategories = async () => {
     try {
@@ -193,6 +216,35 @@ export default function BlogsPage() {
             </Button>
           </div>
 
+          {!loading && blogs.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative max-w-sm flex-1">
+                <SearchIcon className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by title, description, or category"
+                  className="pl-9"
+                />
+              </div>
+              <div className="flex gap-1">
+                {(["all", "published", "scheduled", "draft"] as const).map(
+                  (s) => (
+                    <Button
+                      key={s}
+                      variant={statusFilter === s ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setStatusFilter(s)}
+                      className="capitalize"
+                    >
+                      {s}
+                    </Button>
+                  ),
+                )}
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="rounded-lg border">
               <Table>
@@ -240,6 +292,10 @@ export default function BlogsPage() {
                 Create your first blog post to get started
               </p>
             </div>
+          ) : filteredBlogs.length === 0 ? (
+            <div className="text-muted-foreground py-12 text-center">
+              <p className="text-sm">No blogs match your filters</p>
+            </div>
           ) : (
             <div className="rounded-lg border">
               <Table>
@@ -253,7 +309,7 @@ export default function BlogsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {blogs.map((blog) => (
+                  {filteredBlogs.map((blog) => (
                     <TableRow key={blog.id}>
                       <TableCell className="font-medium">
                         {blog.title}
@@ -262,9 +318,23 @@ export default function BlogsPage() {
                         <Badge variant="secondary">{blog.category}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={blog.published ? "default" : "outline"}>
-                          {blog.published ? "Published" : "Draft"}
-                        </Badge>
+                        {blog.published ? (
+                          <Badge variant="default">Published</Badge>
+                        ) : blog.scheduledAt ? (
+                          <Badge
+                            variant="outline"
+                            className="border-primary text-primary"
+                            title={new Date(blog.scheduledAt).toLocaleString()}
+                          >
+                            Scheduled ·{" "}
+                            {new Date(blog.scheduledAt).toLocaleDateString(
+                              undefined,
+                              { month: "short", day: "numeric" },
+                            )}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">Draft</Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         {new Date(blog.createdAt).toLocaleDateString()}
@@ -308,7 +378,9 @@ export default function BlogsPage() {
                                   Delete blog post?
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  This will permanently delete &quot;{blog.title}&quot;. This action cannot be undone.
+                                  This will permanently delete &quot;
+                                  {blog.title}&quot;. This action cannot be
+                                  undone.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -355,7 +427,7 @@ export default function BlogsPage() {
               Create custom categories to organize your blog posts
             </p>
 
-            <div className="flex gap-2 mb-4">
+            <div className="mb-4 flex gap-2">
               <Input
                 value={newCategoryName}
                 onChange={(e) => setNewCategoryName(e.target.value)}
@@ -385,7 +457,7 @@ export default function BlogsPage() {
                   <Badge
                     key={cat.id}
                     variant="secondary"
-                    className="gap-1 py-1.5 pl-3 pr-1.5 text-sm"
+                    className="gap-1 py-1.5 pr-1.5 pl-3 text-sm"
                   >
                     {cat.name}
                     <button

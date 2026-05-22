@@ -1,24 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import dynamic from "next/dynamic";
+import { marked } from "marked";
 import { toast } from "sonner";
 import {
-  EyeIcon,
-  Loader2Icon,
-  SaveIcon,
-  SettingsIcon,
+  ArrowLeftIcon,
   ChevronDownIcon,
+  EyeIcon,
+  ImageIcon,
+  Loader2Icon,
+  PanelRightIcon,
+  SaveIcon,
 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,8 +32,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CategoryCombobox } from "@/components/category-combobox";
-
-const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
+import { TiptapEditor } from "@/components/tiptap-editor";
+import { ScheduleDialog } from "@/components/schedule-dialog";
+import { format } from "date-fns";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { SparklesIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { uploadImage } from "@/lib/upload";
+import { suggestTitles, summarize } from "@/lib/ai";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 const WWW_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
@@ -36,25 +52,93 @@ interface UserProfile {
   username: string;
 }
 
+function ensureHtml(content: string): string {
+  if (!content) return "";
+  if (content.trim().startsWith("<")) return content;
+  return marked.parse(content, { async: false }) as string;
+}
+
+function SidebarSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Collapsible defaultOpen={defaultOpen}>
+      <CollapsibleTrigger className="hover:text-foreground/80 flex w-full items-center justify-between py-3 text-sm font-medium transition-colors">
+        {title}
+        <ChevronDownIcon className="size-4 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="pb-3">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+interface BlogForm {
+  title: string;
+  slug: string;
+  description: string;
+  content: string;
+  imageUrl: string;
+  category: string;
+  readTime: number;
+  featured: boolean;
+  published: boolean;
+  scheduledAt: string | null;
+}
+
+const EMPTY_FORM: BlogForm = {
+  title: "",
+  slug: "",
+  description: "",
+  content: "",
+  imageUrl: "",
+  category: "",
+  readTime: 5,
+  featured: false,
+  published: false,
+  scheduledAt: null,
+};
+
+function formsEqual(a: BlogForm, b: BlogForm) {
+  return (
+    a.title === b.title &&
+    a.slug === b.slug &&
+    a.description === b.description &&
+    a.content === b.content &&
+    a.imageUrl === b.imageUrl &&
+    a.category === b.category &&
+    a.featured === b.featured &&
+    a.published === b.published &&
+    a.scheduledAt === b.scheduledAt
+  );
+}
+
 export default function EditBlogPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "dirty" | "error"
+  >("idle");
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [form, setForm] = useState({
-    title: "",
-    slug: "",
-    description: "",
-    content: "",
-    imageUrl: "",
-    category: "",
-    readTime: 5,
-    featured: false,
-    published: false,
-  });
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [form, setForm] = useState<BlogForm>(EMPTY_FORM);
+  const lastSavedRef = useRef<BlogForm | null>(null);
+  const inFlightRef = useRef(false);
+
+  const isDirty = useMemo(
+    () =>
+      lastSavedRef.current ? !formsEqual(form, lastSavedRef.current) : false,
+    [form],
+  );
 
   useEffect(() => {
     Promise.all([
@@ -66,68 +150,193 @@ export default function EditBlogPage() {
       ),
     ])
       .then(([blog, profile]) => {
-        setForm({
+        const initial: BlogForm = {
           title: blog.title || "",
           slug: blog.slug || "",
           description: blog.description || "",
-          content: blog.content || "",
+          content: ensureHtml(blog.content || ""),
           imageUrl: blog.imageUrl || "",
           category: blog.category || "",
           readTime: blog.readTime || 5,
           featured: blog.featured || false,
           published: blog.published || false,
-        });
+          scheduledAt: blog.scheduledAt || null,
+        };
+        setForm(initial);
+        lastSavedRef.current = initial;
         setUser({ username: profile.username });
       })
       .finally(() => setLoading(false));
   }, [id]);
 
-  const handleSave = async () => {
-    setSaving(true);
-    setSaved(false);
+  // Mark UI as dirty when the form diverges from last saved
+  useEffect(() => {
+    if (isDirty && saveStatus !== "saving") setSaveStatus("dirty");
+  }, [isDirty, saveStatus]);
+
+  const persist = async (
+    payload: BlogForm,
+    opts: { silent?: boolean; successMessage?: string } = {},
+  ): Promise<boolean> => {
+    if (inFlightRef.current) return false;
+    inFlightRef.current = true;
+    setSaveStatus("saving");
     try {
       const res = await fetch(`${API_URL}/blogs/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-        toast.success("Blog saved successfully");
-      } else {
-        toast.error("Failed to save blog");
+      if (!res.ok) {
+        setSaveStatus("error");
+        if (!opts.silent) toast.error("Failed to save");
+        return false;
       }
+      lastSavedRef.current = payload;
+      setSaveStatus("saved");
+      if (opts.successMessage) toast.success(opts.successMessage);
+      return true;
     } catch {
-      toast.error("Failed to save blog");
+      setSaveStatus("error");
+      if (!opts.silent) toast.error("Failed to save");
+      return false;
     } finally {
-      setSaving(false);
+      inFlightRef.current = false;
     }
   };
 
-  const handlePublish = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch(`${API_URL}/blogs/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ ...form, published: true }),
-      });
-      if (res.ok) {
-        setForm((prev) => ({ ...prev, published: true }));
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-        toast.success("Blog published!");
-      } else {
-        toast.error("Failed to publish");
+  // Debounced autosave: 1.5s after last edit, if dirty and has a title
+  useEffect(() => {
+    if (!isDirty || !form.title) return;
+    const timer = setTimeout(() => {
+      persist(form, { silent: true });
+    }, 1500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, isDirty]);
+
+  // Warn on browser-level navigation away with unsaved changes
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  // Flush a final save on client-side navigation away
+  const formRef = useRef(form);
+  const dirtyRef = useRef(isDirty);
+  formRef.current = form;
+  dirtyRef.current = isDirty;
+  useEffect(() => {
+    return () => {
+      if (dirtyRef.current && formRef.current.title) {
+        fetch(`${API_URL}/blogs/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(formRef.current),
+          keepalive: true,
+        });
       }
-    } catch {
-      toast.error("Failed to publish");
-    } finally {
-      setSaving(false);
+    };
+  }, [id]);
+
+  const handleSave = () => persist(form, { successMessage: "Saved" });
+
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
+  const [loadingTitles, setLoadingTitles] = useState(false);
+  const [titleOpen, setTitleOpen] = useState(false);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
+
+  const handleSuggestTitles = async () => {
+    if (!form.content || form.content.trim().length < 30) {
+      toast.error("Write some content first");
+      return;
     }
+    setLoadingTitles(true);
+    setTitleOpen(true);
+    try {
+      const titles = await suggestTitles(form.content);
+      setTitleSuggestions(titles);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to suggest titles",
+      );
+      setTitleOpen(false);
+    } finally {
+      setLoadingTitles(false);
+    }
+  };
+
+  const handleSuggestDescription = async () => {
+    if (!form.content || form.content.trim().length < 30) {
+      toast.error("Write some content first");
+      return;
+    }
+    setGeneratingDesc(true);
+    try {
+      const summary = await summarize(form.content);
+      setForm((prev) => ({ ...prev, description: summary }));
+      toast.success("Description generated");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to generate description",
+      );
+    } finally {
+      setGeneratingDesc(false);
+    }
+  };
+
+  const handleCoverUpload = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const tId = toast.loading("Uploading cover image…");
+      try {
+        const url = await uploadImage(file);
+        setForm((prev) => ({ ...prev, imageUrl: url }));
+        toast.success("Cover image set", { id: tId });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Upload failed", {
+          id: tId,
+        });
+      }
+    };
+    input.click();
+  };
+
+  const handlePublish = async () => {
+    const payload = { ...form, published: true, scheduledAt: null };
+    const ok = await persist(payload, { successMessage: "Blog published!" });
+    if (ok) setForm(payload);
+  };
+
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+
+  const handleSchedule = async (isoString: string) => {
+    const payload = {
+      ...form,
+      scheduledAt: isoString,
+      published: false,
+    };
+    const ok = await persist(payload, {
+      successMessage: `Scheduled for ${format(new Date(isoString), "MMM d, h:mm a")}`,
+    });
+    if (ok) setForm(payload);
+  };
+
+  const handleUnschedule = async () => {
+    const payload = { ...form, scheduledAt: null };
+    const ok = await persist(payload, { successMessage: "Schedule cleared" });
+    if (ok) setForm(payload);
   };
 
   const previewUrl = user ? `${WWW_URL}/${user.username}/${form.slug}` : null;
@@ -146,31 +355,55 @@ export default function EditBlogPage() {
   return (
     <>
       <SiteHeader title="Edit Blog Post" />
-      <div className="flex flex-1 flex-col">
-        <div className="mx-auto flex w-full flex-col gap-4 p-4 lg:p-6">
-          {/* Top bar */}
+      <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+        {/* Top toolbar */}
+        <div className="border-b px-4 py-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <Button
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
+                className="size-8"
                 onClick={() => router.push("/blogs")}
               >
-                Back to Blogs
+                <ArrowLeftIcon className="size-4" />
               </Button>
+              <Separator orientation="vertical" className="h-5" />
+              <span className="text-muted-foreground max-w-[200px] truncate text-sm">
+                {form.title || "Untitled"}
+              </span>
               {form.published ? (
-                <Badge variant="default" className="text-xs">
+                <Badge variant="default" className="px-1.5 py-0 text-[10px]">
                   Published
                 </Badge>
+              ) : form.scheduledAt ? (
+                <Badge
+                  variant="outline"
+                  className="border-primary text-primary px-1.5 py-0 text-[10px]"
+                >
+                  Scheduled ·{" "}
+                  {format(new Date(form.scheduledAt), "MMM d, h:mm a")}
+                </Badge>
               ) : (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                   Draft
                 </Badge>
               )}
+              <span className="text-muted-foreground/80 ml-1 text-xs">
+                {saveStatus === "saving"
+                  ? "Saving…"
+                  : saveStatus === "dirty"
+                    ? "Unsaved changes"
+                    : saveStatus === "saved"
+                      ? "Saved"
+                      : saveStatus === "error"
+                        ? "Save failed"
+                        : ""}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {previewUrl && (
-                <Button variant="outline" size="sm" asChild>
+                <Button variant="ghost" size="sm" asChild className="h-8">
                   <a
                     href={previewUrl}
                     target="_blank"
@@ -181,22 +414,31 @@ export default function EditBlogPage() {
                   </a>
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("size-8", sidebarOpen && "bg-accent")}
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+              >
+                <PanelRightIcon className="size-4" />
+              </Button>
+              <Separator orientation="vertical" className="h-5" />
               <div className="flex items-center">
                 <Button
                   size="sm"
                   onClick={handleSave}
-                  disabled={saving}
-                  className="rounded-r-none"
+                  disabled={saveStatus === "saving"}
+                  className="h-8 rounded-r-none"
                 >
                   <SaveIcon className="mr-1.5 size-3.5" />
-                  {saving ? "Saving..." : saved ? "Saved!" : "Save"}
+                  {saveStatus === "saving" ? "Saving..." : "Save"}
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={saving}
-                      className="rounded-l-none border-l border-l-primary-foreground/20 px-2"
+                      disabled={saveStatus === "saving"}
+                      className="border-l-primary-foreground/20 h-8 rounded-l-none border-l px-1.5"
                     >
                       <ChevronDownIcon className="size-3.5" />
                     </Button>
@@ -204,54 +446,284 @@ export default function EditBlogPage() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       onClick={() => {
-                        setForm((prev) => ({ ...prev, published: false }));
-                        setTimeout(() => handleSave(), 0);
+                        const payload = {
+                          ...form,
+                          published: false,
+                          scheduledAt: null,
+                        };
+                        setForm(payload);
+                        persist(payload, { successMessage: "Saved as draft" });
                       }}
                     >
                       Save as Draft
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      onClick={() => setScheduleOpen(true)}
+                      disabled={!form.title || !form.content}
+                    >
+                      {form.scheduledAt ? "Reschedule…" : "Schedule…"}
+                    </DropdownMenuItem>
+                    {form.scheduledAt && (
+                      <DropdownMenuItem onClick={handleUnschedule}>
+                        Clear schedule
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
                       onClick={handlePublish}
                       disabled={!form.title || !form.content}
                     >
-                      Publish
+                      Publish now
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Title */}
-          <Input
-            value={form.title}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, title: e.target.value }))
-            }
-            placeholder="Blog title"
-            className="border-none text-2xl font-semibold shadow-none focus-visible:ring-0 px-0 h-auto py-2"
-          />
+        {/* Main content area */}
+        <div className="flex min-h-0 flex-1">
+          {/* Editor area */}
+          <div className="editor-scroll flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-5xl px-6 py-8">
+              {/* Title + AI suggest */}
+              <div className="mb-2 flex items-start gap-2">
+                <input
+                  value={form.title}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, title: e.target.value }))
+                  }
+                  placeholder="Add title"
+                  className="text-foreground placeholder:text-muted-foreground/40 w-full bg-transparent text-4xl font-light tracking-tight focus:outline-none"
+                />
+                <Popover open={titleOpen} onOpenChange={setTitleOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleSuggestTitles}
+                      disabled={loadingTitles}
+                      className="text-primary mt-2 h-8 shrink-0 gap-1.5 text-xs"
+                    >
+                      <SparklesIcon className="size-3.5" />
+                      {loadingTitles ? "Thinking…" : "Suggest"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-80 p-2">
+                    {loadingTitles ? (
+                      <div className="text-muted-foreground p-3 text-sm">
+                        Generating suggestions…
+                      </div>
+                    ) : titleSuggestions.length === 0 ? (
+                      <div className="text-muted-foreground p-3 text-sm">
+                        No suggestions yet.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        <p className="text-muted-foreground px-2 pt-1 pb-2 text-xs">
+                          Pick one to apply
+                        </p>
+                        {titleSuggestions.map((t, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => {
+                              setForm((prev) => ({ ...prev, title: t }));
+                              setTitleOpen(false);
+                            }}
+                            className="hover:bg-accent rounded-md px-2 py-1.5 text-left text-sm"
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-          {/* Settings bar */}
-          <div className="space-y-3">
-            <div className="text-muted-foreground flex items-center gap-2 text-sm">
-              <SettingsIcon className="size-3.5" />
-              Post settings
-            </div>
-            <div className="bg-muted/50 space-y-4 rounded-lg border p-4">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Slug</Label>
-                  <Input
-                    value={form.slug}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, slug: e.target.value }))
+              {/* Description + AI generate */}
+              <div className="mb-6 flex items-start gap-2">
+                <textarea
+                  value={form.description}
+                  onChange={(e) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }));
+                    e.target.style.height = "auto";
+                    e.target.style.height = e.target.scrollHeight + "px";
+                  }}
+                  ref={(el) => {
+                    if (el) {
+                      el.style.height = "auto";
+                      el.style.height = el.scrollHeight + "px";
                     }
-                    className="h-8 text-sm"
-                  />
+                  }}
+                  placeholder="Add a description..."
+                  rows={1}
+                  className="text-muted-foreground placeholder:text-muted-foreground/40 w-full resize-none overflow-hidden bg-transparent text-base focus:outline-none"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSuggestDescription}
+                  disabled={generatingDesc}
+                  className="text-primary h-8 shrink-0 gap-1.5 text-xs"
+                >
+                  <SparklesIcon className="size-3.5" />
+                  {generatingDesc ? "Writing…" : "Generate"}
+                </Button>
+              </div>
+
+              {/* Content */}
+              <Separator className="mb-6" />
+              <TiptapEditor
+                content={form.content}
+                onChange={(content) =>
+                  setForm((prev) => ({ ...prev, content }))
+                }
+              />
+            </div>
+          </div>
+
+          {/* Settings sidebar */}
+          <div
+            className={cn(
+              "bg-background overflow-y-auto border-l transition-all duration-200",
+              sidebarOpen
+                ? "w-[320px] min-w-[320px]"
+                : "w-0 min-w-0 border-l-0",
+            )}
+          >
+            {sidebarOpen && (
+              <div className="p-4">
+                {/* Cover image */}
+                <div className="mb-4">
+                  {form.imageUrl ? (
+                    <div className="group relative">
+                      <img
+                        src={form.imageUrl}
+                        alt="Cover"
+                        className="h-40 w-full rounded-lg object-cover"
+                      />
+                      <button
+                        onClick={() =>
+                          setForm((prev) => ({ ...prev, imageUrl: "" }))
+                        }
+                        className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50 text-sm text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      >
+                        Remove image
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={handleCoverUpload}
+                        className="text-muted-foreground hover:border-foreground/20 hover:text-foreground/60 flex h-32 w-full items-center justify-center rounded-lg border-2 border-dashed transition-colors"
+                      >
+                        <div className="flex flex-col items-center gap-1.5">
+                          <ImageIcon className="size-5" />
+                          <span className="text-xs">Upload featured image</span>
+                        </div>
+                      </button>
+                      <div className="text-muted-foreground text-center text-xs">
+                        or paste a URL
+                      </div>
+                      <Input
+                        value={form.imageUrl}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            imageUrl: e.target.value,
+                          }))
+                        }
+                        placeholder="https://..."
+                        className="text-sm"
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Category</Label>
+
+                <Separator />
+
+                {/* Post details */}
+                <SidebarSection title="Post" defaultOpen>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-sm">
+                        Status
+                      </span>
+                      {form.published ? (
+                        <Badge
+                          variant="default"
+                          className="cursor-pointer text-xs"
+                          onClick={() =>
+                            setForm((prev) => ({
+                              ...prev,
+                              published: false,
+                            }))
+                          }
+                        >
+                          Published
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="secondary"
+                          className="cursor-pointer text-xs"
+                          onClick={() =>
+                            setForm((prev) => ({
+                              ...prev,
+                              published: true,
+                            }))
+                          }
+                        >
+                          Draft
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-sm">
+                        Slug
+                      </span>
+                      <Input
+                        value={form.slug}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            slug: e.target.value,
+                          }))
+                        }
+                        className="h-7 w-[160px] text-xs"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-sm">
+                        Read time
+                      </span>
+                      <span className="text-foreground text-xs">
+                        ~{form.readTime} min · auto
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-sm">
+                        Featured
+                      </span>
+                      <Switch
+                        checked={form.featured}
+                        onCheckedChange={(featured) =>
+                          setForm((prev) => ({ ...prev, featured }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </SidebarSection>
+
+                <Separator />
+
+                {/* Category */}
+                <SidebarSection title="Category" defaultOpen>
                   <CategoryCombobox
                     value={form.category}
                     onChange={(category) =>
@@ -259,54 +731,12 @@ export default function EditBlogPage() {
                     }
                     className="h-8 text-sm"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Read Time (min)</Label>
-                  <Input
-                    type="number"
-                    value={form.readTime}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        readTime: parseInt(e.target.value) || 5,
-                      }))
-                    }
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div className="flex items-end gap-4 pb-0.5">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="featured"
-                      checked={form.featured}
-                      onCheckedChange={(featured) =>
-                        setForm((prev) => ({ ...prev, featured }))
-                      }
-                    />
-                    <Label htmlFor="featured" className="text-xs">
-                      Featured
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="published"
-                      checked={form.published}
-                      onCheckedChange={(published) =>
-                        setForm((prev) => ({ ...prev, published }))
-                      }
-                    />
-                    <Label htmlFor="published" className="text-xs">
-                      Published
-                    </Label>
-                  </div>
-                </div>
-              </div>
+                </SidebarSection>
 
-              <Separator />
+                <Separator />
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Description</Label>
+                {/* Excerpt */}
+                <SidebarSection title="Excerpt">
                   <Textarea
                     value={form.description}
                     onChange={(e) =>
@@ -315,54 +745,39 @@ export default function EditBlogPage() {
                         description: e.target.value,
                       }))
                     }
-                    placeholder="Brief description"
-                    rows={2}
+                    placeholder="Write an excerpt..."
+                    rows={3}
                     className="text-sm"
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Cover Image URL</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={form.imageUrl}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          imageUrl: e.target.value,
-                        }))
-                      }
-                      placeholder="https://..."
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                  {form.imageUrl && (
-                    <img
-                      src={form.imageUrl}
-                      alt="Cover preview"
-                      className="mt-1.5 h-20 w-full rounded object-cover"
-                    />
-                  )}
-                </div>
+                </SidebarSection>
+
+                <Separator />
+
+                {/* Cover Image URL */}
+                <SidebarSection title="Cover Image">
+                  <Input
+                    value={form.imageUrl}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        imageUrl: e.target.value,
+                      }))
+                    }
+                    placeholder="https://..."
+                    className="text-sm"
+                  />
+                </SidebarSection>
               </div>
-            </div>
+            )}
           </div>
         </div>
-
-        {/* Editor - full width */}
-        <div
-          data-color-mode="auto"
-          className="mx-auto min-h-0 flex-1 p-4 lg:p-6 mb-20"
-        >
-          <MDEditor
-            value={form.content}
-            onChange={(val) =>
-              setForm((prev) => ({ ...prev, content: val || "" }))
-            }
-            height={700}
-            preview="live"
-          />
-        </div>
       </div>
+      <ScheduleDialog
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        value={form.scheduledAt}
+        onConfirm={handleSchedule}
+      />
     </>
   );
 }

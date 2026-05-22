@@ -29,8 +29,8 @@ import {
   CalendarIcon,
   PenLineIcon,
   MailIcon,
-  BotMessageSquareIcon,
-  MessageCircleCheckIcon,
+  UsersIcon,
+  WebhookIcon,
 } from "lucide-react";
 import { FaWordpress } from "react-icons/fa";
 import { FaXTwitter, FaMedium, FaDiscord, FaTelegram } from "react-icons/fa6";
@@ -56,9 +56,19 @@ const data = {
       icon: <PenLineIcon />,
     },
     {
+      title: "Subscribers",
+      url: "/subscribers",
+      icon: <UsersIcon />,
+    },
+    {
       title: "Analytics",
       url: "/analytics",
       icon: <ChartBarIcon />,
+    },
+    {
+      title: "Webhooks",
+      url: "/webhooks",
+      icon: <WebhookIcon />,
     },
   ],
   navClouds: [
@@ -177,7 +187,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         setUser({
           name: data.name || "",
           email: data.email || "",
-          avatar: "",
+          avatar: data.avatarUrl || "",
         });
       })
       .catch(() => {});

@@ -70,7 +70,9 @@ export function CategoryCombobox({
       });
       if (res.ok) {
         const cat = await res.json();
-        setCategories((prev) => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)));
+        setCategories((prev) =>
+          [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)),
+        );
         onChange(cat.name);
         setSearch("");
         setOpen(false);
@@ -85,7 +87,7 @@ export function CategoryCombobox({
   };
 
   const exactMatch = categories.some(
-    (c) => c.name.toLowerCase() === search.toLowerCase()
+    (c) => c.name.toLowerCase() === search.toLowerCase(),
   );
 
   return (
@@ -101,7 +103,10 @@ export function CategoryCombobox({
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent
+        className="w-[--radix-popover-trigger-width] p-0"
+        align="start"
+      >
         <Command shouldFilter={true}>
           <CommandInput
             placeholder="Search categories..."
@@ -125,7 +130,7 @@ export function CategoryCombobox({
                       "mr-2 size-4",
                       value.toLowerCase() === cat.name.toLowerCase()
                         ? "opacity-100"
-                        : "opacity-0"
+                        : "opacity-0",
                     )}
                   />
                   {cat.name}
@@ -144,7 +149,7 @@ export function CategoryCombobox({
               </>
             )}
             {!search.trim() && categories.length === 0 && (
-              <div className="py-3 text-center text-sm text-muted-foreground">
+              <div className="text-muted-foreground py-3 text-center text-sm">
                 Type to create a category.
               </div>
             )}

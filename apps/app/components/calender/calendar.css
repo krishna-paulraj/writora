@@ -691,6 +691,31 @@ button.rbc-input::-moz-focus-inner {
   --event-color: var(--accent-foreground);
   --event-border: var(--accent);
 }
+/* Scheduled posts — accent-tinted, draggable */
+.rbc-event.event-variant-scheduled {
+  --event-bg: color-mix(in oklab, var(--primary) 70%, var(--background));
+  --event-color: var(--primary-foreground);
+  --event-border: var(--primary);
+  cursor: grab;
+}
+.rbc-event.event-variant-scheduled:active {
+  cursor: grabbing;
+}
+/* Published posts — solid primary */
+.rbc-event.event-variant-published {
+  --event-bg: var(--primary);
+  --event-color: var(--primary-foreground);
+  --event-border: var(--primary);
+  cursor: pointer;
+}
+/* Drafts — muted, not draggable */
+.rbc-event.event-variant-draft {
+  --event-bg: var(--muted);
+  --event-color: var(--muted-foreground);
+  --event-border: var(--border);
+  cursor: pointer;
+  opacity: 0.75;
+}
 .event-component {
   background-color: var(--primary);
   color: var(--primary-foreground);
