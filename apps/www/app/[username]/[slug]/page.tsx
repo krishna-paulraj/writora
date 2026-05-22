@@ -1,3 +1,5 @@
+import { cache } from "react";
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -17,15 +19,17 @@ import { PostNavigation } from "@/components/blog/post-navigation";
 import { RelatedPosts } from "@/components/blog/related-posts";
 import { DraftBanner } from "@/components/blog/draft-banner";
 import { ViewTracker } from "@/components/blog/view-tracker";
+import { SubscribeCard } from "@/components/blog/subscribe-card";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const SITE_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
+const SITE_NAME = "Writora";
 
-async function fetchBlog(username: string, slug: string) {
+const fetchBlog = cache(async (username: string, slug: string) => {
   // Try public endpoint first
-  const publicRes = await fetch(
-    `${API_URL}/blogs/public/${username}/${slug}`,
-    { cache: "no-store" },
-  );
+  const publicRes = await fetch(`${API_URL}/blogs/public/${username}/${slug}`, {
+    cache: "no-store",
+  });
 
   if (publicRes.ok) {
     const data = await publicRes.json();
@@ -46,6 +50,69 @@ async function fetchBlog(username: string, slug: string) {
 
   const data = await previewRes.json();
   return { ...data, draft: true };
+});
+
+function stripHtml(html: string, max = 160): string {
+  if (!html) return "";
+  const text = html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ username: string; slug: string }>;
+}): Promise<Metadata> {
+  const { username, slug } = await params;
+  const data = await fetchBlog(username, slug);
+  if (!data) return { title: "Not found" };
+
+  const { blog, draft } = data;
+  const url = `${SITE_URL}/${username}/${slug}`;
+  const description = blog.description?.trim() || stripHtml(blog.content);
+  const images = blog.imageUrl
+    ? [{ url: blog.imageUrl, alt: blog.title }]
+    : undefined;
+
+  return {
+    title: blog.title,
+    description,
+    alternates: {
+      canonical: url,
+      types: {
+        "application/rss+xml": `${SITE_URL}/${username}/feed.xml`,
+      },
+    },
+    robots: draft
+      ? { index: false, follow: false }
+      : { index: true, follow: true },
+    openGraph: {
+      type: "article",
+      title: blog.title,
+      description,
+      url,
+      siteName: SITE_NAME,
+      images,
+      publishedTime: blog.createdAt,
+      modifiedTime: blog.updatedAt,
+      authors: [blog.author.name],
+      tags: blog.category ? [blog.category] : undefined,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: blog.title,
+      description,
+      images: blog.imageUrl ? [blog.imageUrl] : undefined,
+      creator: blog.author.username ? `@${blog.author.username}` : undefined,
+    },
+  };
 }
 
 export default async function BlogDetailPage({
@@ -58,8 +125,7 @@ export default async function BlogDetailPage({
   const data = await fetchBlog(username, slug);
   if (!data) notFound();
 
-  const { blog, blogTheme, previousPost, nextPost, relatedPosts, draft } =
-    data;
+  const { blog, blogTheme, previousPost, nextPost, relatedPosts, draft } = data;
 
   const date = new Date(blog.createdAt).toLocaleDateString("en-US", {
     year: "numeric",
@@ -73,8 +139,35 @@ export default async function BlogDetailPage({
     .join("")
     .toUpperCase();
 
+  const articleSchema = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: blog.title,
+    description: blog.description || undefined,
+    image: blog.imageUrl || undefined,
+    datePublished: blog.createdAt,
+    dateModified: blog.updatedAt,
+    author: {
+      "@type": "Person",
+      name: blog.author.name,
+      url: `${SITE_URL}/${username}`,
+    },
+    publisher: { "@type": "Organization", name: SITE_NAME },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `${SITE_URL}/${username}/${slug}`,
+    },
+    articleSection: blog.category || undefined,
+  };
+
   return (
     <BlogThemeProvider themeId={blogTheme || "default"}>
+      {!draft && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+        />
+      )}
       {!draft && <ViewTracker blogId={blog.id} />}
       {draft && <DraftBanner />}
       <section className="py-8 sm:pt-16 sm:pb-24">
@@ -106,9 +199,7 @@ export default async function BlogDetailPage({
                   </BreadcrumbList>
                 </Breadcrumb>
 
-                <h1
-                  className="text-foreground text-4xl font-semibold font-serif"
-                >
+                <h1 className="text-foreground font-serif text-4xl font-semibold">
                   {blog.title}
                 </h1>
 
@@ -167,6 +258,13 @@ export default async function BlogDetailPage({
               <article id="content" className="space-y-12">
                 <MarkdownRenderer content={blog.content} />
               </article>
+
+              {!draft && (
+                <SubscribeCard
+                  username={username}
+                  authorName={blog.author.name}
+                />
+              )}
 
               {!draft && (
                 <PostNavigation

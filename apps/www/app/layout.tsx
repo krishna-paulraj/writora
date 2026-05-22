@@ -62,9 +62,15 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
+
 export const metadata: Metadata = {
-  title: "Writora - Manging blogs made easy",
-  description: "Manging blogs made easy",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Writora - Managing blogs made easy",
+    template: "%s — Writora",
+  },
+  description: "Managing blogs made easy",
   keywords: [
     "Next.js",
     "nextjs template",

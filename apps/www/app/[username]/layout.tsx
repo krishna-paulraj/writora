@@ -13,9 +13,7 @@ export default function BlogLayout({
 }) {
   return (
     <Background className="from-muted/80 via-muted to-muted/50">
-      <div className="blog-scope">
-        {children}
-      </div>
+      <div className="blog-scope">{children}</div>
     </Background>
   );
 }

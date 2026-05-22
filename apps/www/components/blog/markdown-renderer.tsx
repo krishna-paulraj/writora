@@ -27,9 +27,7 @@ const components: Components = {
     <ul className="mb-4 list-inside list-disc space-y-2 pl-2">{children}</ul>
   ),
   ol: ({ children }) => (
-    <ol className="mb-4 list-inside list-decimal space-y-2 pl-2">
-      {children}
-    </ol>
+    <ol className="mb-4 list-inside list-decimal space-y-2 pl-2">{children}</ol>
   ),
   li: ({ children }) => (
     <li className="text-muted-foreground leading-7">{children}</li>
@@ -43,7 +41,7 @@ const components: Components = {
     const isBlock = className?.includes("language-");
     if (isBlock) {
       return (
-        <code className="bg-muted block overflow-x-auto rounded-lg font-mono p-4 text-sm">
+        <code className="bg-muted block overflow-x-auto rounded-lg p-4 font-mono text-sm">
           {children}
         </code>
       );
@@ -76,6 +74,19 @@ interface MarkdownRendererProps {
 }
 
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+  if (!content) return null;
+
+  // Tiptap always emits HTML starting with a block tag.
+  // Legacy markdown content doesn't start with `<`.
+  if (content.trim().startsWith("<")) {
+    return (
+      <div
+        className="blog-html-content"
+        dangerouslySetInnerHTML={{ __html: content }}
+      />
+    );
+  }
+
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
       {content}

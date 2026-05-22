@@ -23,4 +23,8 @@ export interface BlogUser {
   name: string;
   username: string;
   blogTheme?: string;
+  bio?: string | null;
+  avatarUrl?: string | null;
+  twitterHandle?: string | null;
+  websiteUrl?: string | null;
 }

@@ -120,11 +120,18 @@ const Login = () => {
                         Remember me
                       </label>
                     </div>
-                    <a href="#" className="text-primary text-sm font-medium">
+                    <Link
+                      href="/forgot-password"
+                      className="text-primary text-sm font-medium"
+                    >
                       Forgot password
-                    </a>
+                    </Link>
                   </div>
-                  <Button type="submit" className="mt-2 w-full" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="mt-2 w-full"
+                    disabled={isLoading}
+                  >
                     {isLoading ? "Signing in..." : "Sign in"}
                   </Button>
                   <Button
