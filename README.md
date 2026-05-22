@@ -1,159 +1,252 @@
-# Turborepo starter
+# Writora
 
-This Turborepo starter is maintained by the Turborepo core team.
+A self-hostable blogging platform. Each author gets a themable site at `yourdomain.com/username`, a custom domain, email subscribers, and a real authoring experience — without the bloat of WordPress or the rent-seeking of Medium.
 
-## Using this example
+> **Status:** active development. Local dev works end-to-end. Production deploys are possible but rough edges remain (see [Known limitations](#known-limitations)).
 
-Run the following command:
+---
 
-```sh
-npx create-turbo@latest
+## What's in the box
+
+**For authors**
+
+- Rich-text editor (Tiptap) with images, code blocks, embeds — drag/drop & paste images upload to object storage
+- 40+ swappable themes per blog (powered by [tweakcn](https://tweakcn.com))
+- Autosave + unsaved-changes guard
+- Auto read-time, SEO metadata, JSON-LD article schema, dynamic OG images
+- Analytics dashboard (views over time, top posts, week-over-week trend)
+- Search + draft/published filters
+- Subscribers with double opt-in
+- **Email newsletter blast on every publish** (durable via RabbitMQ)
+- Profile editor (avatar, bio, socials, custom domain)
+
+**For readers**
+
+- Per-author public site at `/{username}` with hero + grid + bio
+- Per-post `/{username}/{slug}` with TOC, related posts, view tracking (deduped per IP)
+- RSS feed at `/{username}/feed.xml` with auto-discovery
+- Subscribe widget on every page
+
+**For ops**
+
+- Redis caching on hot read paths (60s TTL with explicit invalidation on writes)
+- Redis-backed per-IP rate limiting on auth, subscribe, upload endpoints
+- RabbitMQ durable queue for newsletter blasts
+- S3-compatible object storage (AWS S3, Cloudflare R2, B2, Spaces, MinIO — one env-var switch)
+- Sitemap + robots.txt
+- Image optimization via sharp (max 2000px, WebP, EXIF rotation honored)
+- Graceful degradation: Redis/Rabbit/S3 unset → fall back to no-op / inline / disk
+
+---
+
+## Architecture
+
+```mermaid
+graph LR
+    Reader[Reader] --> WWW[apps/www :3000<br/>public site]
+    Author[Author] --> APP[apps/app :3001<br/>dashboard]
+
+    WWW --> API[apps/api :4000<br/>NestJS]
+    APP --> API
+
+    API --> DB[(PostgreSQL<br/>Prisma)]
+    API --> Redis[(Redis<br/>cache + throttle)]
+    API --> MQ[(RabbitMQ<br/>queue)]
+    API --> S3[(S3<br/>uploads)]
+    API --> Resend[Resend<br/>email]
 ```
 
-## What's inside?
+Three apps share a single API. Auth is JWT in an httpOnly cookie shared across the `.yourdomain.com` subdomain.
 
-This Turborepo includes the following packages/apps:
+---
 
-### Apps and Packages
+## Quick start (Docker)
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+```bash
+# 1. Spin up the full stack
+docker compose up -d --build
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+# 2. Initialize the database (one time)
+docker compose exec api pnpm exec prisma db push
 
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+# 3. Open
+open http://localhost:3000   # public site (www)
+open http://localhost:3001   # dashboard (app)
 ```
 
-Without global `turbo`, use your package manager:
+The compose file includes Postgres, Redis, RabbitMQ, and the three apps. RabbitMQ management UI is at <http://localhost:15672> (`guest`/`guest`).
 
-```sh
-cd my-turborepo
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
+To override env vars, create `.env` at the repo root or export them in your shell — compose interpolates them. See `apps/api/.env.example` for the full list.
+
+---
+
+## Local dev (without Docker)
+
+You'll need: Node 22, pnpm 10, Postgres, optionally Redis + RabbitMQ.
+
+```bash
+# Install
+pnpm install
+
+# Set up env for each app
+cp apps/api/.env.example apps/api/.env
+cp apps/app/.env.example apps/app/.env
+cp apps/www/.env.example apps/www/.env
+# Fill in DATABASE_URL, JWT_SECRET (same value in all 3), RESEND_API_KEY if you want emails
+
+# Initialize the database
+pnpm --filter api exec prisma db push
+
+# Run everything in parallel
+pnpm dev
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+`pnpm dev` runs all three apps via turbo. You can also run them individually:
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
+```bash
+pnpm --filter api dev    # http://localhost:4000
+pnpm --filter app dev    # http://localhost:3001
+pnpm --filter www dev    # http://localhost:3000
 ```
 
-Without global `turbo`:
+If you skip Redis/RabbitMQ/S3, the api degrades gracefully: cache becomes a no-op, newsletter blasts run inline, and uploads land on local disk. Email sends are logged to stdout when `RESEND_API_KEY` is unset.
 
-```sh
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+---
+
+## Project structure
+
+```
+.
+├── apps/
+│   ├── api/          NestJS — REST API, auth, blog CRUD, email, analytics
+│   │   ├── prisma/   Database schema
+│   │   └── src/
+│   │       ├── auth/         JWT + Google OAuth + email verification + password reset
+│   │       ├── blog/         Blog CRUD + sanitization + newsletter trigger
+│   │       ├── analytics/    Views, dashboard stats, per-blog stats
+│   │       ├── subscriber/   Double opt-in subscriber management
+│   │       ├── email/        Resend client + react.email templates
+│   │       ├── cache/        Redis client + read-through cache + throttler storage
+│   │       ├── queue/        RabbitMQ producer + consumer
+│   │       ├── storage/      Pluggable: local disk or S3-compatible
+│   │       └── upload/       Image upload endpoint (sharp processing)
+│   ├── app/          Next.js dashboard — write, manage, analytics
+│   └── www/          Next.js public site — read, subscribe, sitemap, RSS
+└── packages/
+    ├── ui/           Shared React components
+    ├── eslint-config/
+    └── typescript-config/
 ```
 
-### Develop
+---
 
-To develop all apps and packages, run the following command:
+## Tech stack
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+| Concern          | Choice                                        |
+| ---------------- | --------------------------------------------- |
+| Runtime          | Node 22                                       |
+| Package manager  | pnpm 10 (workspaces)                          |
+| Monorepo         | Turborepo                                     |
+| API              | NestJS 11                                     |
+| Web              | Next.js 16 (App Router)                       |
+| Database         | PostgreSQL via Prisma 7                       |
+| Cache / throttle | Redis (ioredis)                               |
+| Queue            | RabbitMQ (amqplib)                            |
+| Object storage   | S3-compatible (`@aws-sdk/client-s3`)          |
+| Email            | Resend + react.email templates                |
+| Editor           | Tiptap + lowlight syntax highlighting         |
+| Themes           | tweakcn registry (40+ themes)                 |
+| Image pipeline   | sharp (resize + WebP)                         |
+| Auth             | JWT (httpOnly cookie) + bcrypt + Google OAuth |
+| Sanitization     | sanitize-html                                 |
 
-```sh
-cd my-turborepo
-turbo dev
+---
+
+## Common commands
+
+```bash
+# Quality gates
+pnpm check               # format:check + lint + check-types — the CI gate
+pnpm format              # apply Prettier formatting
+pnpm format:check        # check only
+pnpm lint                # ESLint check
+pnpm lint:fix            # auto-fix what's fixable
+pnpm check-types         # tsc --noEmit across all workspaces
+
+# Database
+pnpm --filter api exec prisma db push      # sync schema (dev)
+pnpm --filter api exec prisma migrate dev  # create + apply a migration
+pnpm --filter api exec prisma studio       # GUI at localhost:5555
+
+# Build everything
+pnpm build
 ```
 
-Without global `turbo`, use your package manager:
+Each script also exists per-workspace (`pnpm --filter api lint`, etc.).
 
-```sh
-cd my-turborepo
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
+---
+
+## Environment variables
+
+See `.env.example` in each app. **`JWT_SECRET` must be identical** across `apps/api`, `apps/app`, and `apps/www` — the Next middleware verifies the cookie the API issues.
+
+| Category         | Required for | Vars                                                                                                                                  |
+| ---------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Database         | always       | `DATABASE_URL`                                                                                                                        |
+| Auth             | always       | `JWT_SECRET` (in all three apps)                                                                                                      |
+| Google OAuth     | optional     | `GOOGLE_AUTH_CLIENT_ID`, `GOOGLE_AUTH_SECRET_ID`, `GOOGLE_REDIRECT_URL`                                                               |
+| Email            | optional     | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO`                                                                                      |
+| Cache + throttle | optional     | `REDIS_URL`                                                                                                                           |
+| Queue            | optional     | `RABBITMQ_URL`                                                                                                                        |
+| Object storage   | optional     | `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_URL`, `S3_FORCE_PATH_STYLE`, `S3_ACL` |
+| Public URLs      | always       | `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WWW_URL`, `NEXT_PUBLIC_APP_URL`, `SITE_URL`                                                       |
+
+---
+
+## Deployment
+
+The included Dockerfiles (`apps/{api,app,www}/Dockerfile`) produce slim production images using multi-stage builds and Next.js standalone output. Final image sizes: ~180–220MB each.
+
+```bash
+# Build all images
+docker compose build
+
+# Push to a registry of your choice
+docker tag writora-api:latest your-registry/writora-api:latest
+docker push your-registry/writora-api:latest
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+**Recommended hosts:**
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+- **API**: Railway, Render, Fly.io, or any VM/container service with a persistent process. Avoid serverless — the newsletter consumer needs to stay running.
+- **www + app**: Vercel works, or any host that runs the standalone Next.js output.
+- **Postgres**: Neon, Supabase, RDS.
+- **Redis**: Upstash (free tier sufficient for small traffic).
+- **RabbitMQ**: CloudAMQP (free tier).
+- **Object storage**: Cloudflare R2 (no egress fees, generous free tier) is the most cost-effective.
 
-```sh
-turbo dev --filter=web
-```
+**Important runtime notes:**
 
-Without global `turbo`:
+- `NEXT_PUBLIC_*` variables are baked in at **build time**, not runtime. Pass them as `--build-arg` during `docker build`.
+- Cookie domain in production needs adjusting: the API sets `domain: '.writora.com'` when `NODE_ENV=production`. Update for your domain in `apps/api/src/auth/auth.controller.ts`.
+- CORS origins in `apps/api/src/main.ts` are hardcoded to localhost — make these env-driven before deploying.
 
-```sh
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
+---
 
-### Remote Caching
+## Known limitations
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+These are real and on the roadmap:
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+- **CORS origins** are hardcoded to localhost in `apps/api/src/main.ts`. Needs to be env-driven.
+- **Migration history** is using `prisma db push` (no `migrate dev`). Fine for dev but you'll want proper migrations for production rollouts.
+- **Custom domains** field exists in the schema but isn't wired through middleware yet.
+- **No tests.** Critical paths (auth, publish, sanitizer, cache invalidation) have zero coverage.
+- **No error tracking.** Sentry or similar is unconfigured.
+- **Helmet** isn't installed — no security headers on the API.
+- **Marketing site** (`apps/www/app/page.tsx`, `/pricing`, `/about-us`, `/contact`) is still shadcn-template scaffolding.
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
+---
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+## License
 
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+UNLICENSED — see individual app `package.json` files. This will likely change once a license decision is made.
