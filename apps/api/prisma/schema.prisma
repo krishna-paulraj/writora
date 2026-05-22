@@ -7,18 +7,29 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  username     String   @unique
-  password     String?
-  googleId     String?  @unique
-  blogTheme    String   @default("default")
-  customDomain String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  blogs        Blog[]
-  categories   Category[]
+  id                   String    @id @default(cuid())
+  name                 String
+  email                String    @unique
+  username             String    @unique
+  password             String?
+  googleId             String?   @unique
+  blogTheme            String    @default("default")
+  customDomain         String?
+  bio                  String?
+  avatarUrl            String?
+  twitterHandle        String?
+  websiteUrl           String?
+  emailVerified        DateTime?
+  inboundWebhookSecret String?   @unique
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  blogs              Blog[]
+  categories         Category[]
+  subscribers        Subscriber[]
+  passwordResets     PasswordReset[]
+  emailVerifications EmailVerification[]
+  webhookEndpoints   WebhookEndpoint[]
 }
 
 model Category {
@@ -33,23 +44,27 @@ model Category {
 }
 
 model Blog {
-  id          String     @id @default(cuid())
-  slug        String
-  title       String
-  description String
-  content     String
-  imageUrl    String?
-  category    String
-  readTime    Int        @default(5)
-  featured    Boolean    @default(false)
-  published   Boolean    @default(false)
-  authorId    String
-  author      User       @relation(fields: [authorId], references: [id])
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  views       BlogView[]
+  id              String     @id @default(cuid())
+  slug            String
+  title           String
+  description     String
+  content         String
+  imageUrl        String?
+  category        String
+  readTime        Int        @default(5)
+  featured        Boolean    @default(false)
+  published       Boolean    @default(false)
+  publishedAt     DateTime?
+  scheduledAt     DateTime?
+  newsletterSent  Boolean    @default(false)
+  authorId        String
+  author          User       @relation(fields: [authorId], references: [id])
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  views           BlogView[]
 
   @@unique([authorId, slug])
+  @@index([scheduledAt])
 }
 
 model BlogView {
@@ -61,4 +76,57 @@ model BlogView {
   @@index([blogId])
   @@index([createdAt])
   @@index([blogId, createdAt])
+}
+
+model Subscriber {
+  id               String    @id @default(cuid())
+  email            String
+  authorId         String
+  author           User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  confirmToken     String    @unique
+  unsubscribeToken String    @unique
+  confirmedAt      DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@unique([authorId, email])
+  @@index([authorId, confirmedAt])
+}
+
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model WebhookEndpoint {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url            String
+  description    String?
+  secret         String
+  enabled        Boolean   @default(true)
+  lastDeliveryAt DateTime?
+  lastStatus     Int?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId])
 }

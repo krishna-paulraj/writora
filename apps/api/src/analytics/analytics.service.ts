@@ -1,19 +1,59 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
+
+const DASHBOARD_TTL = 60;
+const BLOGS_TTL = 60;
+const VIEW_DEDUP_TTL = 24 * 60 * 60; // 24h
+
+function dashboardKey(userId: string) {
+  return `analytics:dashboard:${userId}`;
+}
+function blogsKey(userId: string) {
+  return `analytics:blogs:${userId}`;
+}
+function hashIp(ip: string): string {
+  return createHash('sha256').update(ip).digest('hex').slice(0, 16);
+}
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: CacheService,
+  ) {}
 
-  // Record a view (called from public blog page)
-  async trackView(blogId: string) {
-    return this.prisma.blogView.create({
-      data: { blogId },
+  // Record a view, deduplicated per (blogId, IP-hash) per 24h to stop refresh spam.
+  async trackView(blogId: string, ip: string) {
+    const dedupKey = `view:dedup:${blogId}:${hashIp(ip)}`;
+    const fresh = await this.cache.setIfAbsent(dedupKey, '1', VIEW_DEDUP_TTL);
+    if (!fresh) {
+      return { counted: false };
+    }
+    const view = await this.prisma.blogView.create({ data: { blogId } });
+    // Invalidate analytics caches for the blog's author
+    const blog = await this.prisma.blog.findUnique({
+      where: { id: blogId },
+      select: { authorId: true },
     });
+    if (blog) {
+      await this.cache.del(
+        dashboardKey(blog.authorId),
+        blogsKey(blog.authorId),
+      );
+    }
+    return { counted: true, id: view.id };
   }
 
   // Dashboard stats for the authenticated user
-  async getDashboardStats(userId: string) {
+  getDashboardStats(userId: string) {
+    return this.cache.wrap(dashboardKey(userId), DASHBOARD_TTL, () =>
+      this.computeDashboardStats(userId),
+    );
+  }
+
+  private async computeDashboardStats(userId: string) {
     const blogs = await this.prisma.blog.findMany({
       where: { authorId: userId },
       select: {
@@ -126,7 +166,13 @@ export class AnalyticsService {
   }
 
   // Per-blog analytics
-  async getBlogAnalytics(userId: string) {
+  getBlogAnalytics(userId: string) {
+    return this.cache.wrap(blogsKey(userId), BLOGS_TTL, () =>
+      this.computeBlogAnalytics(userId),
+    );
+  }
+
+  private async computeBlogAnalytics(userId: string) {
     const blogs = await this.prisma.blog.findMany({
       where: { authorId: userId },
       select: {
@@ -154,7 +200,11 @@ export class AnalyticsService {
     }));
   }
 
-  // Calendar data — blog events
+  // Calendar data — blog events. Returns one event per post, anchored on
+  // its most meaningful date:
+  //   scheduledAt (if set)  → "scheduled" — drag-to-reschedule lives here
+  //   publishedAt (if set)  → "published" — historical record
+  //   createdAt (fallback)  → "draft"
   async getCalendarEvents(userId: string) {
     const blogs = await this.prisma.blog.findMany({
       where: { authorId: userId },
@@ -163,19 +213,37 @@ export class AnalyticsService {
         title: true,
         slug: true,
         published: true,
+        scheduledAt: true,
+        publishedAt: true,
         createdAt: true,
-        updatedAt: true,
       },
       orderBy: { createdAt: 'asc' },
     });
 
-    return blogs.map((b) => ({
-      id: b.id,
-      title: b.title,
-      start: b.createdAt,
-      end: b.createdAt,
-      allDay: true,
-      variant: b.published ? 'primary' : 'secondary',
-    }));
+    return blogs.map((b) => {
+      let variant: 'scheduled' | 'published' | 'draft';
+      let start: Date;
+      if (b.scheduledAt) {
+        variant = 'scheduled';
+        start = b.scheduledAt;
+      } else if (b.published) {
+        variant = 'published';
+        start = b.publishedAt ?? b.createdAt;
+      } else {
+        variant = 'draft';
+        start = b.createdAt;
+      }
+      return {
+        id: b.id,
+        title: b.title,
+        slug: b.slug,
+        start,
+        end: start,
+        allDay: true,
+        variant,
+        published: b.published,
+        scheduledAt: b.scheduledAt,
+      };
+    });
   }
 }

@@ -8,4 +8,5 @@ export class UpdateBlogDto {
   readTime?: number;
   featured?: boolean;
   published?: boolean;
+  scheduledAt?: string | null;
 }

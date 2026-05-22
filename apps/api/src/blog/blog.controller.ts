@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -18,6 +19,12 @@ import { UpdateBlogDto } from './dto/update-blog.dto';
 @Controller('blogs')
 export class BlogController {
   constructor(private blogService: BlogService) {}
+
+  // Public routes — declared first so generic `:id` route doesn't shadow them
+  @Get('sitemap')
+  sitemap() {
+    return this.blogService.findAllPublishedForSitemap();
+  }
 
   // Protected routes (require auth)
   @UseGuards(JwtAuthGuard)
@@ -57,6 +64,19 @@ export class BlogController {
   remove(@Req() req: express.Request, @Param('id') id: string) {
     const user = req.user as { id: string };
     return this.blogService.remove(id, user.id);
+  }
+
+  // Set or clear the schedule for a post. Used by the calendar's drag-to-
+  // reschedule handler. Body: { scheduledAt: ISO string | null }
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/schedule')
+  setSchedule(
+    @Req() req: express.Request,
+    @Param('id') id: string,
+    @Body() body: { scheduledAt: string | null },
+  ) {
+    const user = req.user as { id: string };
+    return this.blogService.setSchedule(id, user.id, body?.scheduledAt ?? null);
   }
 
   // Preview (owner only)
