@@ -16,15 +16,16 @@ export function BlogHero({ user, featuredPosts }: BlogHeroProps) {
   if (featuredPosts.length === 0) return null;
 
   return (
-    <section id="home" className="bg-muted rounded-t-4xl pt-32 pb-12 sm:pb-16 lg:pb-24">
+    <section
+      id="home"
+      className="bg-muted rounded-t-4xl pt-32 pb-12 sm:pb-16 lg:pb-24"
+    >
       <div className="mx-auto mt-5 flex h-full max-w-7xl flex-col gap-16 px-4 sm:px-6 lg:px-8">
         <div className="flex max-w-4xl flex-col items-center gap-4 self-center text-center">
           <Badge variant="outline" className="text-sm font-normal">
             {user.name}&apos;s Blog
           </Badge>
-          <h1
-            className="text-3xl leading-[1.29167] font-semibold text-balance font-serif sm:text-4xl lg:text-5xl"
-          >
+          <h1 className="font-serif text-3xl leading-[1.29167] font-semibold text-balance sm:text-4xl lg:text-5xl">
             Featured Posts
           </h1>
           <p className="text-muted-foreground mx-auto max-w-2xl text-xl">

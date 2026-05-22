@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "writora_jwt_secret_change_in_production_k9x2m4p7"
+  process.env.JWT_SECRET || "writora_jwt_secret_change_in_production_k9x2m4p7",
 );
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";

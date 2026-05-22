@@ -17,9 +17,7 @@ export function RelatedPosts({ posts, username }: RelatedPostsProps) {
       <div className="mx-auto max-w-7xl space-y-16 px-4 py-8 sm:px-6 lg:px-8">
         <div className="space-y-4">
           <Badge variant="outline">Trending</Badge>
-          <h2
-            className="text-2xl font-semibold font-serif md:text-3xl lg:text-4xl"
-          >
+          <h2 className="font-serif text-2xl font-semibold md:text-3xl lg:text-4xl">
             Related Posts
           </h2>
           <p className="text-muted-foreground text-lg md:text-xl">

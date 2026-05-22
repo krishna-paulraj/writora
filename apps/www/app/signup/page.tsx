@@ -122,7 +122,11 @@ const Signup = () => {
                       </p>
                     )}
                   </div>
-                  <Button type="submit" className="mt-2 w-full" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="mt-2 w-full"
+                    disabled={isLoading}
+                  >
                     {isLoading ? "Creating account..." : "Create an account"}
                   </Button>
                   <Button

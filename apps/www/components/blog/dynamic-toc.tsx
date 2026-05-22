@@ -122,9 +122,7 @@ export function DynamicToc({
               >
                 <span
                   className={`mt-2.5 inline-block h-0.5 w-3 shrink-0 transition-colors ${
-                    activeId === group.main.id
-                      ? "bg-primary"
-                      : "bg-primary/40"
+                    activeId === group.main.id ? "bg-primary" : "bg-primary/40"
                   }`}
                 ></span>
                 <span>{group.main.title}</span>
