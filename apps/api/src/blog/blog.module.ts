@@ -6,5 +6,6 @@ import { BlogSchedulerService } from './blog-scheduler.service';
 @Module({
   controllers: [BlogController],
   providers: [BlogService, BlogSchedulerService],
+  exports: [BlogService],
 })
 export class BlogModule {}

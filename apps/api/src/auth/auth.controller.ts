@@ -136,31 +136,35 @@ export class AuthController {
     this.setCookie(res, token);
 
     const appUrl =
-      this.configService.get('NODE_ENV') === 'production'
+      this.configService.get<string>('APP_URL') ??
+      (this.configService.get('NODE_ENV') === 'production'
         ? 'https://app.writora.com'
-        : 'http://localhost:3001';
+        : 'http://localhost:3001');
     res.redirect(appUrl);
   }
 
   @Post('logout')
   logout(@Res({ passthrough: true }) res: express.Response) {
+    const cookieDomain = this.configService.get<string>('COOKIE_DOMAIN');
     res.clearCookie('token', {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
+      ...(cookieDomain && { domain: cookieDomain }),
     });
     return { message: 'Logged out' };
   }
 
   private setCookie(res: express.Response, token: string) {
     const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const cookieDomain = this.configService.get<string>('COOKIE_DOMAIN');
     res.cookie('token', token, {
       httpOnly: true,
       secure: isProduction,
       sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      ...(isProduction && { domain: '.writora.com' }),
+      ...(cookieDomain && { domain: cookieDomain }),
     });
   }
 }
