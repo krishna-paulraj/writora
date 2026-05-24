@@ -1,0 +1,13 @@
+# Exclude source code and test files from the deploy package
+src/
+test/
+.env
+.env.development
+.env.test
+.env.production
+.env.local
+.temp/
+.tmp/
+pids/
+logs/
+*.log
