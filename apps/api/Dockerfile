@@ -37,7 +37,7 @@ RUN pnpm --filter api run build
 FROM builder AS deployer
 WORKDIR /repo
 # `pnpm deploy` copies the workspace's prod-only deps + project files into /deploy
-RUN pnpm --filter api --prod deploy /deploy
+RUN pnpm --filter api --prod deploy --legacy /deploy
 
 # --- Stage 5: minimal runtime ---
 FROM node:22-bookworm-slim AS runner
