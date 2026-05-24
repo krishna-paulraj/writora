@@ -21,6 +21,8 @@ COPY apps/www/package.json apps/www/package.json
 COPY packages/eslint-config/package.json packages/eslint-config/package.json
 COPY packages/typescript-config/package.json packages/typescript-config/package.json
 COPY packages/ui/package.json packages/ui/package.json
+COPY apps/api/prisma apps/api/prisma
+COPY apps/api/prisma.config.ts apps/api/prisma.config.ts
 RUN pnpm install --frozen-lockfile
 
 # --- Stage 3: build the api ---
