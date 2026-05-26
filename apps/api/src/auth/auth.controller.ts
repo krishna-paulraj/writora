@@ -69,7 +69,7 @@ export class AuthController {
       name?: string;
       username?: string;
       blogTheme?: string;
-      customDomain?: string;
+      customDomain?: string | null;
       bio?: string;
       avatarUrl?: string;
       twitterHandle?: string;
@@ -136,10 +136,7 @@ export class AuthController {
     this.setCookie(res, token);
 
     const appUrl =
-      this.configService.get<string>('APP_URL') ??
-      (this.configService.get('NODE_ENV') === 'production'
-        ? 'https://app.writora.com'
-        : 'http://localhost:3001');
+      this.configService.get<string>('APP_URL') ?? 'http://localhost:3001';
     res.redirect(appUrl);
   }
 

@@ -26,6 +26,12 @@ export class BlogController {
     return this.blogService.findAllPublishedForSitemap();
   }
 
+  // Used by the www proxy to resolve a custom domain to its owner's username.
+  @Get('by-domain/:domain')
+  findByDomain(@Param('domain') domain: string) {
+    return this.blogService.findUsernameByDomain(domain);
+  }
+
   // Protected routes (require auth)
   @UseGuards(JwtAuthGuard)
   @Post()

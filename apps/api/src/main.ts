@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { AppModule } from './app.module';
@@ -13,9 +14,19 @@ async function bootstrap() {
   // a proxy.
   app.set('trust proxy', 1);
 
+  // crossOriginResourcePolicy is relaxed because /uploads/* is served from
+  // this origin and consumed cross-origin by app/www.
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
+
   app.use(cookieParser());
 
-  const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000,http://localhost:3001')
+  const corsOrigins = (
+    process.env.CORS_ORIGINS ?? 'http://localhost:3000,http://localhost:3001'
+  )
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);

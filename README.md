@@ -63,13 +63,10 @@ Three apps share a single API. Auth is JWT in an httpOnly cookie shared across t
 ## Quick start (Docker)
 
 ```bash
-# 1. Spin up the full stack
+# 1. Spin up the full stack (the api applies migrations on startup)
 docker compose up -d --build
 
-# 2. Initialize the database (one time)
-docker compose exec api pnpm exec prisma db push
-
-# 3. Open
+# 2. Open
 open http://localhost:3000   # public site (www)
 open http://localhost:3001   # dashboard (app)
 ```
@@ -94,8 +91,8 @@ cp apps/app/.env.example apps/app/.env
 cp apps/www/.env.example apps/www/.env
 # Fill in DATABASE_URL, JWT_SECRET (same value in all 3), RESEND_API_KEY if you want emails
 
-# Initialize the database
-pnpm --filter api exec prisma db push
+# Apply migrations
+pnpm --filter api exec prisma migrate deploy
 
 # Run everything in parallel
 pnpm dev
@@ -174,9 +171,9 @@ pnpm lint:fix            # auto-fix what's fixable
 pnpm check-types         # tsc --noEmit across all workspaces
 
 # Database
-pnpm --filter api exec prisma db push      # sync schema (dev)
-pnpm --filter api exec prisma migrate dev  # create + apply a migration
-pnpm --filter api exec prisma studio       # GUI at localhost:5555
+pnpm --filter api exec prisma migrate dev     # create + apply a new migration
+pnpm --filter api exec prisma migrate deploy  # apply existing migrations (prod-safe)
+pnpm --filter api exec prisma studio          # GUI at localhost:5555
 
 # Build everything
 pnpm build
@@ -228,8 +225,9 @@ docker push your-registry/writora-api:latest
 **Important runtime notes:**
 
 - `NEXT_PUBLIC_*` variables are baked in at **build time**, not runtime. Pass them as `--build-arg` during `docker build`.
-- Cookie domain in production needs adjusting: the API sets `domain: '.writora.com'` when `NODE_ENV=production`. Update for your domain in `apps/api/src/auth/auth.controller.ts`.
-- CORS origins in `apps/api/src/main.ts` are hardcoded to localhost — make these env-driven before deploying.
+- Set `COOKIE_DOMAIN` to your apex with a leading dot (e.g. `.yourdomain.com`) so the auth cookie is shared across api/app/www subdomains. Leave empty for localhost dev.
+- Set `CORS_ORIGINS` to a comma-separated allowlist of origins (e.g. `https://yourdomain.com,https://app.yourdomain.com`). Defaults to localhost only.
+- Set `APP_URL` to your dashboard URL — Google OAuth callbacks redirect there after login.
 
 ---
 
@@ -237,12 +235,8 @@ docker push your-registry/writora-api:latest
 
 These are real and on the roadmap:
 
-- **CORS origins** are hardcoded to localhost in `apps/api/src/main.ts`. Needs to be env-driven.
-- **Migration history** is using `prisma db push` (no `migrate dev`). Fine for dev but you'll want proper migrations for production rollouts.
-- **Custom domains** field exists in the schema but isn't wired through middleware yet.
-- **No tests.** Critical paths (auth, publish, sanitizer, cache invalidation) have zero coverage.
+- **Test coverage is thin.** The API has unit tests for the sanitizer, auth service, and blog-cache invalidation (`pnpm --filter api test`), but most of the surface area (controllers, queue consumer, scheduler, e2e flows) is uncovered.
 - **No error tracking.** Sentry or similar is unconfigured.
-- **Helmet** isn't installed — no security headers on the API.
 - **Marketing site** (`apps/www/app/page.tsx`, `/pricing`, `/about-us`, `/contact`) is still shadcn-template scaffolding.
 
 ---

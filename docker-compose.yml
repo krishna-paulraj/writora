@@ -3,7 +3,7 @@
 # First-time setup:
 #   cp apps/api/.env.example apps/api/.env  (fill in any secrets)
 #   docker compose up -d --build
-#   docker compose exec api pnpm exec prisma db push  (one-time schema sync)
+#   (migrations run automatically on api startup via `prisma migrate deploy`)
 #
 # Common commands:
 #   docker compose logs -f api

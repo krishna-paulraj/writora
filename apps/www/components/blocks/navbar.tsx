@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 
 import { ChevronRight, Github } from "lucide-react";
 
+import { GitHubStars } from "@/components/github-stars";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,7 +45,12 @@ const ITEMS = [
   { label: "Contact", href: "/contact" },
 ];
 
-export const Navbar = () => {
+type NavbarProps = {
+  repo: string;
+  stargazersCount: number | null;
+};
+
+export const Navbar = ({ repo, stargazersCount }: NavbarProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const pathname = usePathname();
@@ -129,13 +135,19 @@ export const Navbar = () => {
               <span className="relative z-10">Login</span>
             </Button>
           </Link>
-          <a
-            href="https://github.com/krishna-paulraj/writora"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Github className="size-4" />
-            <span className="sr-only">GitHub</span>
-          </a>
+          {stargazersCount !== null ? (
+            <GitHubStars repo={repo} stargazersCount={stargazersCount} />
+          ) : (
+            <a
+              href={`https://github.com/${repo}`}
+              target="_blank"
+              rel="noopener"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Github className="size-4" />
+              <span className="sr-only">GitHub</span>
+            </a>
+          )}
 
           {/* Hamburger Menu Button (Mobile Only) */}
           <button

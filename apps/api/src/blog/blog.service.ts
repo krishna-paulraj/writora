@@ -7,13 +7,13 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import sanitizeHtml from 'sanitize-html';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
 import { QueueService } from '../queue/queue.service';
 import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
+import { sanitizeContent, computeReadTime } from './sanitize';
 
 const NEWSLETTER_QUEUE = 'newsletter.blast';
 interface NewsletterJob {
@@ -32,6 +32,7 @@ const SITEMAP_KEY = 'blog:sitemap:all';
 const PUBLIC_LIST_TTL = 60;
 const PUBLIC_DETAIL_TTL = 60;
 const SITEMAP_TTL = 3600;
+const DOMAIN_TTL = 300;
 
 function publicListKey(username: string) {
   return `blog:public:list:${username}`;
@@ -42,75 +43,8 @@ function publicDetailKey(username: string, slug: string) {
 function authorBlogsPattern(username: string) {
   return `blog:public:*:${username}*`;
 }
-
-const WORDS_PER_MINUTE = 200;
-
-const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
-  allowedTags: [
-    'p',
-    'br',
-    'hr',
-    'h1',
-    'h2',
-    'h3',
-    'h4',
-    'h5',
-    'h6',
-    'strong',
-    'em',
-    'u',
-    's',
-    'code',
-    'mark',
-    'sub',
-    'sup',
-    'ul',
-    'ol',
-    'li',
-    'blockquote',
-    'pre',
-    'a',
-    'img',
-    'span',
-    'div',
-    'figure',
-    'figcaption',
-    'table',
-    'thead',
-    'tbody',
-    'tr',
-    'th',
-    'td',
-  ],
-  allowedAttributes: {
-    a: ['href', 'target', 'rel', 'class'],
-    img: ['src', 'alt', 'title', 'class', 'width', 'height'],
-    code: ['class'],
-    pre: ['class'],
-    span: ['class', 'style'],
-    div: ['class'],
-    '*': ['data-*'],
-  },
-  allowedSchemes: ['http', 'https', 'mailto', 'data'],
-  // Drop anything dangerous outright instead of escaping it
-  disallowedTagsMode: 'discard',
-  // Strip <script>, <style>, and their contents entirely
-  nonTextTags: ['style', 'script', 'textarea', 'option'],
-};
-
-function sanitizeContent(content: string): string {
-  return sanitizeHtml(content, SANITIZE_OPTIONS);
-}
-
-function computeReadTime(html: string): number {
-  if (!html) return 1;
-  const text = html
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!text) return 1;
-  const words = text.split(' ').length;
-  return Math.max(1, Math.ceil(words / WORDS_PER_MINUTE));
+function domainKey(domain: string) {
+  return `blog:domain:${domain}`;
 }
 
 @Injectable()
@@ -462,6 +396,31 @@ export class BlogService implements OnModuleInit {
         updatedAt: b.updatedAt,
       }));
     });
+  }
+
+  /**
+   * Resolves a custom domain to its owner's username. Caches both hits and
+   * misses (as null) so unrelated traffic on unknown hosts doesn't keep
+   * hitting the DB.
+   */
+  async findUsernameByDomain(
+    domain: string,
+  ): Promise<{ username: string } | null> {
+    const normalized = domain.toLowerCase().trim();
+    if (!normalized) return null;
+
+    const key = domainKey(normalized);
+    const cached = await this.cache.get<{ username: string | null }>(key);
+    if (cached !== null) {
+      return cached.username ? { username: cached.username } : null;
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { customDomain: normalized },
+      select: { username: true },
+    });
+    await this.cache.set(key, { username: user?.username ?? null }, DOMAIN_TTL);
+    return user ? { username: user.username } : null;
   }
 
   // Public endpoints

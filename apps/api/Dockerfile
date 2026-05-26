@@ -56,4 +56,5 @@ ENV NODE_ENV=production \
 
 EXPOSE 4000
 
-CMD ["node", "dist/src/main.js"]
+# Apply pending migrations before starting. `exec` so signals propagate to node.
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && exec node dist/src/main.js"]

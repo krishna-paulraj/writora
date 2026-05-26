@@ -117,7 +117,7 @@ export class AuthService {
       name?: string;
       username?: string;
       blogTheme?: string;
-      customDomain?: string;
+      customDomain?: string | null;
       bio?: string;
       avatarUrl?: string;
       twitterHandle?: string;
@@ -126,7 +126,7 @@ export class AuthService {
   ) {
     const current = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { username: true },
+      select: { username: true, customDomain: true },
     });
 
     if (data.username) {
@@ -138,11 +138,30 @@ export class AuthService {
       }
     }
 
+    // Normalize and validate custom domain so cache lookups (which lowercase
+    // the host header) line up with stored values.
+    const normalized: typeof data = { ...data };
+    if (data.customDomain !== undefined) {
+      const trimmed = data.customDomain?.trim().toLowerCase() ?? '';
+      normalized.customDomain = trimmed === '' ? null : trimmed;
+    }
+
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data,
+      data: normalized,
     });
     await this.invalidateUserCache(userId, current?.username);
+    if (
+      data.customDomain !== undefined &&
+      current?.customDomain !== normalized.customDomain
+    ) {
+      const keys: string[] = [];
+      if (current?.customDomain)
+        keys.push(`blog:domain:${current.customDomain}`);
+      if (normalized.customDomain)
+        keys.push(`blog:domain:${normalized.customDomain}`);
+      if (keys.length) await this.cache.del(...keys);
+    }
     return {
       id: user.id,
       name: user.name,
