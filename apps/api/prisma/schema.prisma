@@ -30,6 +30,8 @@ model User {
   passwordResets     PasswordReset[]
   emailVerifications EmailVerification[]
   webhookEndpoints   WebhookEndpoint[]
+  articleJobs        ArticleJob[]
+  savedKeywords      SavedKeyword[]
 }
 
 model Category {
@@ -51,6 +53,7 @@ model Blog {
   content         String
   imageUrl        String?
   category        String
+  targetKeyword   String?
   readTime        Int        @default(5)
   featured        Boolean    @default(false)
   published       Boolean    @default(false)
@@ -62,6 +65,7 @@ model Blog {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   views           BlogView[]
+  articleJob      ArticleJob?
 
   @@unique([authorId, slug])
   @@index([scheduledAt])
@@ -128,5 +132,49 @@ model WebhookEndpoint {
   lastError      String?
   createdAt      DateTime  @default(now())
 
+  @@index([userId])
+}
+
+model ArticleJob {
+  id            String    @id @default(cuid())
+  status        String    @default("pending") // pending | running | done | failed
+  topic         String
+  targetKeyword String?
+  tone          String    @default("professional")
+  length        String    @default("medium") // short | medium | long
+  audience      String?
+  category      String?
+  keywordData   Json?
+  contentPlanId String?
+  source        String    @default("manual") // manual | autopilot
+  outline       Json?
+  progress      Int       @default(0)
+  blogId        String?   @unique
+  blog          Blog?     @relation(fields: [blogId], references: [id], onDelete: SetNull)
+  error         String?
+  authorId      String
+  author        User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([authorId, status])
+  @@index([status])
+}
+
+model SavedKeyword {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyword      String
+  searchVolume Int?
+  difficulty   Int?
+  competition  Float?
+  cpc          Float?
+  seed         String?
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, keyword])
   @@index([userId])
 }
