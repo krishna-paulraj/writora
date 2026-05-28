@@ -18,6 +18,8 @@ import { QueueModule } from './queue/queue.module';
 import { StorageModule } from './storage/storage.module';
 import { AiModule } from './ai/ai.module';
 import { WebhookModule } from './webhook/webhook.module';
+import { KeywordModule } from './keyword/keyword.module';
+import { SeoModule } from './seo/seo.module';
 import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
 
 @Module({
@@ -37,6 +39,8 @@ import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
     SubscriberModule,
     AiModule,
     WebhookModule,
+    KeywordModule,
+    SeoModule,
     ThrottlerModule.forRootAsync({
       imports: [CacheModule],
       inject: [RedisThrottlerStorage],

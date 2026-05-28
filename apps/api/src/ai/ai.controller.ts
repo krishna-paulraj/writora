@@ -2,13 +2,18 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
+  Param,
   Post,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AiService, EditAction, Tone } from './ai.service';
+import { ArticleGenerationService } from './article-generation.service';
+import { GenerateArticleDto } from './dto/generate-article.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 interface EditBody {
@@ -26,7 +31,10 @@ const HOUR = 60 * 60_000;
 @UseGuards(JwtAuthGuard)
 @Controller('ai')
 export class AiController {
-  constructor(private ai: AiService) {}
+  constructor(
+    private ai: AiService,
+    private articleGen: ArticleGenerationService,
+  ) {}
 
   // 60 AI edits per hour per IP — generous for active writing, expensive enough
   // that 60 is more than a single user needs and bots get capped.
@@ -73,5 +81,28 @@ export class AiController {
   @Post('summarize')
   summarize(@Body() body: ContentBody) {
     return this.ai.summarize(body?.content ?? '');
+  }
+
+  // Full-article generation is expensive (one OpenAI call per section) — cap
+  // hard. Returns a job id; the client polls the GET endpoints below.
+  @Throttle({ default: { limit: 10, ttl: HOUR } })
+  @Post('article')
+  generateArticle(@Req() req: Request, @Body() dto: GenerateArticleDto) {
+    const user = req.user as { id: string };
+    return this.articleGen.enqueue(user.id, dto);
+  }
+
+  @Throttle({ default: { limit: 120, ttl: HOUR } })
+  @Get('articles')
+  listArticleJobs(@Req() req: Request) {
+    const user = req.user as { id: string };
+    return this.articleGen.listJobs(user.id);
+  }
+
+  @Throttle({ default: { limit: 120, ttl: HOUR } })
+  @Get('article/:jobId')
+  getArticleJob(@Req() req: Request, @Param('jobId') jobId: string) {
+    const user = req.user as { id: string };
+    return this.articleGen.getJob(user.id, jobId);
   }
 }

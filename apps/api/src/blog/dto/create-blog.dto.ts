@@ -5,6 +5,7 @@ export class CreateBlogDto {
   content: string;
   imageUrl?: string;
   category: string;
+  targetKeyword?: string;
   readTime?: number;
   featured?: boolean;
   published?: boolean;

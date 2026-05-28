@@ -22,8 +22,54 @@ export type Tone =
   | 'witty'
   | 'confident';
 
+export type ArticleLength = 'short' | 'medium' | 'long';
+
+export interface ArticleInput {
+  topic: string;
+  targetKeyword?: string;
+  relatedKeywords?: string[];
+  tone?: Tone;
+  length?: ArticleLength;
+  audience?: string;
+}
+
+export interface OutlineSection {
+  heading: string;
+  subheadings: string[];
+}
+
+export interface ArticleOutline {
+  sections: OutlineSection[];
+}
+
+export interface GeneratedArticle {
+  outline: ArticleOutline;
+  contentHtml: string;
+  titleOptions: string[];
+  metaDescription: string;
+}
+
 const MAX_INPUT_CHARS = 12_000; // ~3k tokens
 const MAX_OUTPUT_TOKENS = 1024;
+const OUTLINE_MAX_TOKENS = 900;
+const SECTION_MAX_TOKENS = 1000;
+// Per-call ceiling so a stalled OpenAI request fails the job instead of
+// blocking the queue consumer (prefetch=1) indefinitely.
+const PER_CALL_TIMEOUT_MS = 90_000;
+
+// Tags the section writer is allowed to emit — a subset of what sanitizeContent
+// keeps, chosen so generated articles render cleanly in the Tiptap editor.
+const ALLOWED_HTML_TAGS =
+  '<h2> <h3> <p> <ul> <ol> <li> <strong> <em> <blockquote> <a>';
+
+const LENGTH_SPEC: Record<
+  ArticleLength,
+  { sectionCount: string; wordsPerSection: string }
+> = {
+  short: { sectionCount: '3 to 4', wordsPerSection: '120-180' },
+  medium: { sectionCount: '5 to 7', wordsPerSection: '180-260' },
+  long: { sectionCount: '8 to 10', wordsPerSection: '250-350' },
+};
 
 function buildEditPrompt(
   action: EditAction,
@@ -45,6 +91,60 @@ function buildEditPrompt(
     case 'continue':
       return `Continue this piece of writing naturally — match the tone, style, and voice. Write 1-3 paragraphs that flow from where it ends. Return ONLY the new content, not the original.\n\nText:\n${text}`;
   }
+}
+
+function describeAudience(input: ArticleInput): string {
+  return input.audience ? ` The target audience is: ${input.audience}.` : '';
+}
+
+function describeKeyword(input: ArticleInput): string {
+  return input.targetKeyword
+    ? ` Naturally target the SEO keyword "${input.targetKeyword}" throughout, including in headings where it reads well.`
+    : '';
+}
+
+function describeRelatedKeywords(input: ArticleInput): string {
+  const list = (input.relatedKeywords ?? [])
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  return list.length
+    ? ` Where it reads naturally, also incorporate these related keywords: ${list.join(', ')}. Do not keyword-stuff.`
+    : '';
+}
+
+function buildOutlinePrompt(input: ArticleInput): string {
+  const spec = LENGTH_SPEC[input.length ?? 'medium'];
+  return `Create an SEO article outline for the topic: "${input.topic}".${describeKeyword(input)}${describeRelatedKeywords(input)}${describeAudience(input)} Use a ${input.tone ?? 'professional'} tone. Produce ${spec.sectionCount} top-level sections (H2), each with up to 3 subheadings (H3). Cover the topic comprehensively without overlapping sections, and order them logically. Return JSON of the form {"sections":[{"heading":"...","subheadings":["...","..."]}]}.`;
+}
+
+function buildSectionPrompt(
+  input: ArticleInput,
+  outline: ArticleOutline,
+  index: number,
+): string {
+  const spec = LENGTH_SPEC[input.length ?? 'medium'];
+  const section = outline.sections[index];
+  const outlineSummary = outline.sections
+    .map((s, i) => `${i + 1}. ${s.heading}`)
+    .join('\n');
+  const subs = section.subheadings?.length
+    ? ` Where they fit, use these H3 subheadings: ${section.subheadings.join(', ')}.`
+    : '';
+  return `You are writing ONE section of an article about "${input.topic}".${describeKeyword(input)}${describeRelatedKeywords(input)}${describeAudience(input)} Use a ${input.tone ?? 'professional'} tone.
+
+Full outline (for context only — do NOT write the other sections and do not repeat their content):
+${outlineSummary}
+
+Write only the section titled "${section.heading}".${subs} Aim for about ${spec.wordsPerSection} words. Begin the output with an <h2> containing the section heading.`;
+}
+
+// LLMs sometimes wrap HTML in ```html fences despite instructions — strip them.
+function stripCodeFences(html: string): string {
+  return html
+    .replace(/^\s*```[a-zA-Z]*\s*/, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
 }
 
 @Injectable()
@@ -181,5 +281,133 @@ export class AiService {
     });
 
     return (res.choices[0]?.message?.content || '').trim();
+  }
+
+  /** Whether an OpenAI key is configured — lets callers skip doomed work. */
+  isConfigured(): boolean {
+    return this.client !== null;
+  }
+
+  async generateOutline(input: ArticleInput): Promise<ArticleOutline> {
+    if (!input?.topic || input.topic.trim().length === 0) {
+      throw new BadRequestException('topic is required');
+    }
+    const client = this.ensureClient();
+    const res = await client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an SEO content strategist. Respond ONLY with a JSON object of the form {"sections":[{"heading":"...","subheadings":["..."]}]}. No prose, no markdown.',
+          },
+          { role: 'user', content: buildOutlinePrompt(input) },
+        ],
+        max_tokens: OUTLINE_MAX_TOKENS,
+        temperature: 0.7,
+        response_format: { type: 'json_object' },
+      },
+      { timeout: PER_CALL_TIMEOUT_MS },
+    );
+
+    const raw = res.choices[0]?.message?.content || '{}';
+    try {
+      const parsed = JSON.parse(raw) as { sections?: unknown };
+      if (!Array.isArray(parsed.sections)) {
+        throw new Error('missing sections array');
+      }
+      const sections: OutlineSection[] = parsed.sections
+        .filter(
+          (s): s is Record<string, unknown> =>
+            typeof s === 'object' && s !== null && 'heading' in s,
+        )
+        .map((s) => ({
+          heading: typeof s.heading === 'string' ? s.heading.trim() : '',
+          subheadings: Array.isArray(s.subheadings)
+            ? s.subheadings.filter((h): h is string => typeof h === 'string')
+            : [],
+        }))
+        .filter((s) => s.heading.length > 0);
+      if (sections.length === 0) throw new Error('no valid sections');
+      return { sections };
+    } catch (err) {
+      this.logger.warn(
+        `failed to parse outline JSON: ${raw.slice(0, 200)} (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+      throw new BadRequestException('Failed to generate a valid outline');
+    }
+  }
+
+  async expandSection(
+    input: ArticleInput,
+    outline: ArticleOutline,
+    sectionIndex: number,
+  ): Promise<string> {
+    const section = outline.sections[sectionIndex];
+    if (!section) throw new BadRequestException('invalid section index');
+    const client = this.ensureClient();
+    const res = await client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an expert SEO writer. Return clean HTML for ONE article section using ONLY these tags: ${ALLOWED_HTML_TAGS}. Do not include <h1>, <html>, <body>, markdown, code fences, or any commentary — return HTML only.`,
+          },
+          {
+            role: 'user',
+            content: buildSectionPrompt(input, outline, sectionIndex),
+          },
+        ],
+        max_tokens: SECTION_MAX_TOKENS,
+        temperature: 0.7,
+      },
+      { timeout: PER_CALL_TIMEOUT_MS },
+    );
+    return stripCodeFences(res.choices[0]?.message?.content || '');
+  }
+
+  /**
+   * Full article pipeline: outline → expand each section → title/meta. Slow
+   * (one OpenAI call per section), so it runs inside a background job. The
+   * optional onProgress callback lets the caller persist progress for polling.
+   */
+  async generateArticle(
+    input: ArticleInput,
+    onProgress?: (progress: number, stage: string) => void | Promise<void>,
+  ): Promise<GeneratedArticle> {
+    if (!input?.topic || input.topic.trim().length === 0) {
+      throw new BadRequestException('topic is required');
+    }
+    this.ensureClient();
+
+    await onProgress?.(5, 'outlining');
+    const outline = await this.generateOutline(input);
+    await onProgress?.(15, 'writing');
+
+    const parts: string[] = [];
+    const total = outline.sections.length;
+    for (let i = 0; i < total; i++) {
+      const html = await this.expandSection(input, outline, i);
+      if (html) parts.push(html);
+      // Sections span 15%→85% of the progress bar.
+      await onProgress?.(15 + Math.round(((i + 1) / total) * 70), 'writing');
+    }
+
+    const contentHtml = parts.join('\n');
+    if (!contentHtml.trim()) {
+      throw new BadRequestException('Article generation produced no content');
+    }
+
+    await onProgress?.(90, 'finalizing');
+    const [titleOptions, metaDescription] = await Promise.all([
+      this.suggestTitles(contentHtml).catch(() => [] as string[]),
+      this.summarize(contentHtml).catch(() => ''),
+    ]);
+
+    return { outline, contentHtml, titleOptions, metaDescription };
   }
 }
