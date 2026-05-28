@@ -56,6 +56,11 @@ const data = {
       icon: <PenLineIcon />,
     },
     {
+      title: "Keywords",
+      url: "/keywords",
+      icon: <SearchIcon />,
+    },
+    {
       title: "Subscribers",
       url: "/subscribers",
       icon: <UsersIcon />,

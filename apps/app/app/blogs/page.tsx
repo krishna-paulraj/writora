@@ -10,6 +10,7 @@ import {
   EyeOffIcon,
   ExternalLinkIcon,
   SearchIcon,
+  SparklesIcon,
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -210,10 +211,19 @@ export default function BlogsPage() {
                 Create and manage your blog posts
               </p>
             </div>
-            <Button onClick={() => router.push("/blogs/new")}>
-              <PlusIcon className="mr-2 size-4" />
-              New Blog
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => router.push("/blogs/generate")}
+              >
+                <SparklesIcon className="mr-2 size-4" />
+                Generate with AI
+              </Button>
+              <Button onClick={() => router.push("/blogs/new")}>
+                <PlusIcon className="mr-2 size-4" />
+                New Blog
+              </Button>
+            </div>
           </div>
 
           {!loading && blogs.length > 0 && (

@@ -6,12 +6,14 @@ import { marked } from "marked";
 import { toast } from "sonner";
 import {
   ArrowLeftIcon,
+  CheckIcon,
   ChevronDownIcon,
   EyeIcon,
   ImageIcon,
   Loader2Icon,
   PanelRightIcon,
   SaveIcon,
+  XIcon,
 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/ui/button";
@@ -44,6 +46,8 @@ import { SparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { uploadImage } from "@/lib/upload";
 import { suggestTitles, summarize } from "@/lib/ai";
+import { scoreSeo, type SeoScoreResult } from "@/lib/seo";
+import { Progress } from "@/components/ui/progress";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 const WWW_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
@@ -87,6 +91,7 @@ interface BlogForm {
   content: string;
   imageUrl: string;
   category: string;
+  targetKeyword: string;
   readTime: number;
   featured: boolean;
   published: boolean;
@@ -100,6 +105,7 @@ const EMPTY_FORM: BlogForm = {
   content: "",
   imageUrl: "",
   category: "",
+  targetKeyword: "",
   readTime: 5,
   featured: false,
   published: false,
@@ -114,6 +120,7 @@ function formsEqual(a: BlogForm, b: BlogForm) {
     a.content === b.content &&
     a.imageUrl === b.imageUrl &&
     a.category === b.category &&
+    a.targetKeyword === b.targetKeyword &&
     a.featured === b.featured &&
     a.published === b.published &&
     a.scheduledAt === b.scheduledAt
@@ -131,6 +138,7 @@ export default function EditBlogPage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [form, setForm] = useState<BlogForm>(EMPTY_FORM);
+  const [seo, setSeo] = useState<SeoScoreResult | null>(null);
   const lastSavedRef = useRef<BlogForm | null>(null);
   const inFlightRef = useRef(false);
 
@@ -157,6 +165,7 @@ export default function EditBlogPage() {
           content: ensureHtml(blog.content || ""),
           imageUrl: blog.imageUrl || "",
           category: blog.category || "",
+          targetKeyword: blog.targetKeyword || "",
           readTime: blog.readTime || 5,
           featured: blog.featured || false,
           published: blog.published || false,
@@ -215,6 +224,22 @@ export default function EditBlogPage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, isDirty]);
+
+  // Debounced on-page SEO scoring against the target keyword.
+  useEffect(() => {
+    if (!form.targetKeyword.trim()) return;
+    const timer = setTimeout(() => {
+      scoreSeo({
+        title: form.title,
+        description: form.description,
+        contentHtml: form.content,
+        targetKeyword: form.targetKeyword,
+      })
+        .then(setSeo)
+        .catch(() => {});
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [form.title, form.description, form.content, form.targetKeyword]);
 
   // Warn on browser-level navigation away with unsaved changes
   useEffect(() => {
@@ -731,6 +756,89 @@ export default function EditBlogPage() {
                     }
                     className="h-8 text-sm"
                   />
+                </SidebarSection>
+
+                <Separator />
+
+                {/* SEO */}
+                <SidebarSection title="SEO" defaultOpen>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <span className="text-muted-foreground text-sm">
+                        Target keyword
+                      </span>
+                      <Input
+                        value={form.targetKeyword}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            targetKeyword: e.target.value,
+                          }))
+                        }
+                        placeholder="e.g. vegetable gardening"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    {!form.targetKeyword.trim() ? (
+                      <p className="text-muted-foreground text-xs">
+                        Set a target keyword to see your SEO score.
+                      </p>
+                    ) : seo ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Score</span>
+                          <span
+                            className={cn(
+                              "font-semibold",
+                              seo.score >= 80
+                                ? "text-green-600"
+                                : seo.score >= 50
+                                  ? "text-amber-600"
+                                  : "text-destructive",
+                            )}
+                          >
+                            {seo.score}/100
+                          </span>
+                        </div>
+                        <Progress value={seo.score} />
+                        <ul className="space-y-1 pt-1">
+                          {seo.checks.map((c) => (
+                            <li
+                              key={c.id}
+                              className="flex items-start gap-2 text-xs"
+                            >
+                              {c.passed ? (
+                                <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-green-600" />
+                              ) : (
+                                <XIcon className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+                              )}
+                              <span
+                                className={cn(
+                                  c.passed ? "" : "text-muted-foreground",
+                                )}
+                              >
+                                {c.label}
+                                {c.detail ? (
+                                  <span className="text-muted-foreground">
+                                    {" "}
+                                    · {c.detail}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-muted-foreground text-xs">
+                          {seo.wordCount} words · density {seo.keywordDensity}%
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-muted-foreground flex items-center gap-2 text-xs">
+                        <Loader2Icon className="size-3.5 animate-spin" />
+                        Scoring…
+                      </div>
+                    )}
+                  </div>
                 </SidebarSection>
 
                 <Separator />
