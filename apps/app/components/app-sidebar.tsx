@@ -31,12 +31,16 @@ import {
   MailIcon,
   UsersIcon,
   WebhookIcon,
+  RocketIcon,
+  SendIcon,
+  CreditCardIcon,
 } from "lucide-react";
 import { FaWordpress } from "react-icons/fa";
 import { FaXTwitter, FaMedium, FaDiscord, FaTelegram } from "react-icons/fa6";
 import Image from "next/image";
 import Link from "next/link";
 import { NavAutopost } from "./nav-autopost";
+import { SiteSwitcher } from "./site-switcher";
 
 const data = {
   navMain: [
@@ -59,6 +63,16 @@ const data = {
       title: "Keywords",
       url: "/keywords",
       icon: <SearchIcon />,
+    },
+    {
+      title: "Autopilot",
+      url: "/autopilot",
+      icon: <RocketIcon />,
+    },
+    {
+      title: "Destinations",
+      url: "/destinations",
+      icon: <SendIcon />,
     },
     {
       title: "Subscribers",
@@ -131,6 +145,11 @@ const data = {
       icon: <Settings2Icon />,
     },
     {
+      title: "Billing",
+      url: "/billing",
+      icon: <CreditCardIcon />,
+    },
+    {
       title: "Get Help",
       url: "#",
       icon: <CircleHelpIcon />,
@@ -144,7 +163,7 @@ const data = {
   navAutopost: [
     {
       name: "WordPress",
-      url: "#",
+      url: "/destinations",
       icon: <FaWordpress />,
     },
     {
@@ -154,7 +173,7 @@ const data = {
     },
     {
       name: "X (formerly Twitter)",
-      url: "#",
+      url: "/destinations",
       icon: <FaXTwitter />,
     },
     {
@@ -220,6 +239,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        <SiteSwitcher />
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
