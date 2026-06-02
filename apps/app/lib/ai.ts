@@ -1,3 +1,5 @@
+import { apiFetch } from "./api";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export type EditAction =
@@ -102,9 +104,8 @@ export interface ArticleJobStatus {
 export async function generateArticle(
   input: GenerateArticleInput,
 ): Promise<{ jobId: string; status: string }> {
-  const res = await fetch(`${API_URL}/ai/article`, {
+  const res = await apiFetch(`/ai/article`, {
     method: "POST",
-    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
@@ -116,9 +117,7 @@ export async function generateArticle(
 }
 
 export async function getArticleJob(jobId: string): Promise<ArticleJobStatus> {
-  const res = await fetch(`${API_URL}/ai/article/${jobId}`, {
-    credentials: "include",
-  });
+  const res = await apiFetch(`/ai/article/${jobId}`);
   if (!res.ok) throw new Error(`Failed to fetch job (${res.status})`);
   return (await res.json()) as ArticleJobStatus;
 }

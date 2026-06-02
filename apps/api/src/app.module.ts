@@ -20,6 +20,12 @@ import { AiModule } from './ai/ai.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { KeywordModule } from './keyword/keyword.module';
 import { SeoModule } from './seo/seo.module';
+import { ContentPlanModule } from './content-plan/content-plan.module';
+import { PublishModule } from './publish/publish.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { EntitlementsModule } from './entitlements/entitlements.module';
+import { SiteModule } from './site/site.module';
+import { BillingModule } from './billing/billing.module';
 import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
 
 @Module({
@@ -41,6 +47,12 @@ import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
     WebhookModule,
     KeywordModule,
     SeoModule,
+    ContentPlanModule,
+    PublishModule,
+    NotificationsModule,
+    EntitlementsModule,
+    SiteModule,
+    BillingModule,
     ThrottlerModule.forRootAsync({
       imports: [CacheModule],
       inject: [RedisThrottlerStorage],

@@ -18,7 +18,7 @@ function slugify(text: string): string {
 export class CategoryService {
   constructor(private prisma: PrismaService) {}
 
-  async create(userId: string, dto: CreateCategoryDto) {
+  async create(userId: string, siteId: string, dto: CreateCategoryDto) {
     const slug = slugify(dto.name);
     const existing = await this.prisma.category.findUnique({
       where: { userId_slug: { userId, slug } },
@@ -32,13 +32,14 @@ export class CategoryService {
         name: dto.name,
         slug,
         userId,
+        siteId,
       },
     });
   }
 
-  async findAll(userId: string) {
+  async findAll(userId: string, siteId: string) {
     return this.prisma.category.findMany({
-      where: { userId },
+      where: { userId, siteId },
       orderBy: { name: 'asc' },
     });
   }

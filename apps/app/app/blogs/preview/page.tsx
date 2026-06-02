@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -86,7 +86,15 @@ interface BlogData {
   draft: boolean;
 }
 
-export default function PreviewPage() {
+function PreviewLoading() {
+  return (
+    <div className="text-muted-foreground flex items-center justify-center py-24">
+      Loading preview...
+    </div>
+  );
+}
+
+function PreviewContent() {
   const searchParams = useSearchParams();
   const slug = searchParams.get("slug");
   const [data, setData] = useState<BlogData | null>(null);
@@ -104,12 +112,10 @@ export default function PreviewPage() {
       .finally(() => setLoading(false));
   }, [slug]);
 
-  if (loading) {
-    return (
-      <div className="text-muted-foreground flex items-center justify-center py-24">
-        Loading preview...
-      </div>
-    );
+  // With no slug the fetch effect never runs, so `loading` stays true; gate the
+  // spinner on `slug` so that case falls through to the "Blog not found" state.
+  if (loading && slug) {
+    return <PreviewLoading />;
   }
 
   if (!data) {
@@ -201,5 +207,15 @@ export default function PreviewPage() {
         </article>
       </div>
     </div>
+  );
+}
+
+// useSearchParams() must sit under a Suspense boundary, otherwise `next build`
+// fails prerendering this client page (missing-suspense-with-csr-bailout).
+export default function PreviewPage() {
+  return (
+    <Suspense fallback={<PreviewLoading />}>
+      <PreviewContent />
+    </Suspense>
   );
 }

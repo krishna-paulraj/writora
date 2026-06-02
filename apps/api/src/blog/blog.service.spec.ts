@@ -5,12 +5,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
 import { QueueService } from '../queue/queue.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('BlogService', () => {
   let service: BlogService;
   let prisma: any;
   let cache: any;
   let queue: any;
+  let notifications: any;
 
   beforeEach(async () => {
     prisma = {
@@ -25,6 +27,7 @@ describe('BlogService', () => {
       user: {
         findUnique: jest.fn(),
       },
+      site: { findFirst: jest.fn() },
       subscriber: { findMany: jest.fn() },
     };
     cache = {
@@ -40,6 +43,7 @@ describe('BlogService', () => {
       enqueue: jest.fn(),
       consume: jest.fn(),
     };
+    notifications = { emit: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -52,6 +56,7 @@ describe('BlogService', () => {
           provide: ConfigService,
           useValue: { get: jest.fn(() => undefined) },
         },
+        { provide: NotificationsService, useValue: notifications },
       ],
     }).compile();
 
@@ -68,13 +73,13 @@ describe('BlogService', () => {
       });
       prisma.user.findUnique.mockResolvedValue({ username: 'alice' });
 
-      await service.create('u1', {
+      await service.create('u1', 'site1', {
         slug: 's',
         title: 't',
         description: 'd',
         content: '<p>safe</p><script>alert("xss")</script>',
         category: 'c',
-      } as any);
+      });
 
       const createCall = prisma.blog.create.mock.calls[0][0];
       expect(createCall.data.content).not.toContain('<script');
@@ -91,13 +96,13 @@ describe('BlogService', () => {
       });
       prisma.user.findUnique.mockResolvedValue({ username: 'alice' });
 
-      await service.create('u1', {
+      await service.create('u1', 'site1', {
         slug: 's',
         title: 't',
         description: 'd',
         content: '<p>x</p>',
         category: 'c',
-      } as any);
+      });
 
       expect(cache.delPattern).toHaveBeenCalledWith('blog:public:*:alice*');
     });
@@ -123,7 +128,7 @@ describe('BlogService', () => {
       });
       prisma.user.findUnique.mockResolvedValue({ username: 'alice' });
 
-      await service.update('b1', 'u1', { published: true } as any);
+      await service.update('b1', 'u1', { published: true });
 
       const enqueuedQueues = queue.enqueue.mock.calls.map((c: any[]) => c[0]);
       expect(enqueuedQueues).toContain('newsletter.blast');
@@ -148,7 +153,7 @@ describe('BlogService', () => {
       });
       prisma.user.findUnique.mockResolvedValue({ username: 'alice' });
 
-      await service.update('b1', 'u1', { title: 'New title' } as any);
+      await service.update('b1', 'u1', { title: 'New title' });
 
       const enqueuedQueues = queue.enqueue.mock.calls.map((c: any[]) => c[0]);
       expect(enqueuedQueues).not.toContain('newsletter.blast');
@@ -173,7 +178,7 @@ describe('BlogService', () => {
       });
       prisma.user.findUnique.mockResolvedValue({ username: 'alice' });
 
-      await service.update('b1', 'u1', { title: 'New' } as any);
+      await service.update('b1', 'u1', { title: 'New' });
 
       expect(cache.delPattern).toHaveBeenCalledWith('blog:public:*:alice*');
     });
@@ -195,49 +200,63 @@ describe('BlogService', () => {
   });
 
   describe('findUsernameByDomain', () => {
-    it('caches a hit and returns the username', async () => {
+    it('resolves the domain to its site + owner and caches the hit', async () => {
       cache.get.mockResolvedValue(null);
-      prisma.user.findUnique = jest.fn();
-      prisma.user.findFirst = jest
-        .fn()
-        .mockResolvedValue({ username: 'alice' });
+      prisma.site.findFirst.mockResolvedValue({
+        slug: 'alice',
+        isPrimary: true,
+        user: { username: 'alice' },
+      });
 
       const result = await service.findUsernameByDomain('Example.com');
 
-      expect(result).toEqual({ username: 'alice' });
-      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+      expect(result).toEqual({
+        username: 'alice',
+        siteSlug: 'alice',
+        isPrimary: true,
+      });
+      expect(prisma.site.findFirst).toHaveBeenCalledWith({
         where: { customDomain: 'example.com' },
-        select: { username: true },
+        select: {
+          slug: true,
+          isPrimary: true,
+          user: { select: { username: true } },
+        },
       });
       expect(cache.set).toHaveBeenCalledWith(
         'blog:domain:example.com',
-        { username: 'alice' },
+        { value: { username: 'alice', siteSlug: 'alice', isPrimary: true } },
         expect.any(Number),
       );
     });
 
-    it('caches a miss with null so unknown hosts do not hammer the DB', async () => {
+    it('caches a miss so unknown hosts do not hammer the DB', async () => {
       cache.get.mockResolvedValue(null);
-      prisma.user.findFirst = jest.fn().mockResolvedValue(null);
+      prisma.site.findFirst.mockResolvedValue(null);
 
       const result = await service.findUsernameByDomain('unknown.example');
 
       expect(result).toBeNull();
       expect(cache.set).toHaveBeenCalledWith(
         'blog:domain:unknown.example',
-        { username: null },
+        { value: null },
         expect.any(Number),
       );
     });
 
     it('serves from cache when present (no DB call)', async () => {
-      cache.get.mockResolvedValue({ username: 'alice' });
-      prisma.user.findFirst = jest.fn();
+      cache.get.mockResolvedValue({
+        value: { username: 'alice', siteSlug: 'alice', isPrimary: true },
+      });
 
       const result = await service.findUsernameByDomain('example.com');
 
-      expect(result).toEqual({ username: 'alice' });
-      expect(prisma.user.findFirst).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        username: 'alice',
+        siteSlug: 'alice',
+        isPrimary: true,
+      });
+      expect(prisma.site.findFirst).not.toHaveBeenCalled();
     });
   });
 });

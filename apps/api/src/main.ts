@@ -7,7 +7,11 @@ import { mkdirSync } from 'node:fs';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // rawBody:true captures the unparsed body buffer (req.rawBody) so the Stripe
+  // webhook can verify its HMAC signature; other routes parse JSON as usual.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
 
   // Trust the first hop (Vercel / Cloudflare / nginx) so req.ip reflects the
   // real client. Required for the throttler's IP-based keying to work behind

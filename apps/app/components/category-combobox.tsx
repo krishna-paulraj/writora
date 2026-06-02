@@ -18,8 +18,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { toast } from "sonner";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { apiFetch, apiError } from "@/lib/api";
 
 interface Category {
   id: string;
@@ -44,9 +43,7 @@ export function CategoryCombobox({
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch(`${API_URL}/categories`, {
-        credentials: "include",
-      });
+      const res = await apiFetch(`/categories`);
       if (res.ok) {
         setCategories(await res.json());
       }
@@ -62,10 +59,9 @@ export function CategoryCombobox({
   const handleCreate = async () => {
     if (!search.trim()) return;
     try {
-      const res = await fetch(`${API_URL}/categories`, {
+      const res = await apiFetch(`/categories`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ name: search.trim() }),
       });
       if (res.ok) {
@@ -78,8 +74,7 @@ export function CategoryCombobox({
         setOpen(false);
         toast.success(`Category "${cat.name}" created`);
       } else {
-        const data = await res.json();
-        toast.error(data.message || "Failed to create category");
+        toast.error(await apiError(res, "Failed to create category"));
       }
     } catch {
       toast.error("Failed to create category");

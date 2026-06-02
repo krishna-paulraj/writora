@@ -10,9 +10,12 @@ import type { BlogPost } from "./types";
 interface BlogCardProps {
   post: BlogPost;
   username: string;
+  /** Link prefix; defaults to /{username}. Secondary sites pass /s/{slug}. */
+  basePath?: string;
 }
 
-export function BlogCard({ post, username }: BlogCardProps) {
+export function BlogCard({ post, username, basePath }: BlogCardProps) {
+  const base = basePath ?? `/${username}`;
   const date = new Date(post.createdAt).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
@@ -21,7 +24,7 @@ export function BlogCard({ post, username }: BlogCardProps) {
 
   return (
     <Card className="group h-full cursor-pointer overflow-hidden shadow-none transition-all duration-300">
-      <Link href={`/${username}/${post.slug}`}>
+      <Link href={`${base}/${post.slug}`}>
         <CardContent className="space-y-3.5">
           {post.imageUrl && (
             <div className="mb-6 overflow-hidden rounded-lg sm:mb-12">

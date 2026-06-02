@@ -34,11 +34,24 @@ export class SubscriberService {
       throw new BadRequestException('Invalid email address');
     }
 
+    // Subscriptions via /[username] attach to the user's PRIMARY site. (Per-
+    // secondary-site subscribe widgets are deferred — see Phase 5 notes.)
     const author = await this.prisma.user.findUnique({
       where: { username },
-      select: { id: true, name: true, username: true },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        sites: {
+          where: { isPrimary: true },
+          select: { id: true },
+          take: 1,
+        },
+      },
     });
     if (!author) throw new NotFoundException('Author not found');
+    const siteId = author.sites[0]?.id;
+    if (!siteId) throw new NotFoundException('Author not found');
 
     const existing = await this.prisma.subscriber.findUnique({
       where: { authorId_email: { authorId: author.id, email: normalized } },
@@ -56,6 +69,7 @@ export class SubscriberService {
       await this.prisma.subscriber.create({
         data: {
           authorId: author.id,
+          siteId,
           email: normalized,
           confirmToken,
           unsubscribeToken,
@@ -107,21 +121,22 @@ export class SubscriberService {
     return { authorName: record.author.name, username: record.author.username };
   }
 
-  async listForAuthor(authorId: string) {
+  async listForAuthor(authorId: string, siteId: string) {
     const subs = await this.prisma.subscriber.findMany({
-      where: { authorId, confirmedAt: { not: null } },
+      where: { authorId, siteId, confirmedAt: { not: null } },
       orderBy: { confirmedAt: 'desc' },
       select: { id: true, email: true, confirmedAt: true },
     });
     const pending = await this.prisma.subscriber.count({
-      where: { authorId, confirmedAt: null },
+      where: { authorId, siteId, confirmedAt: null },
     });
     return { confirmed: subs, pendingCount: pending, total: subs.length };
   }
 
-  async listConfirmedForBlast(authorId: string) {
+  /** Confirmed subscribers of a specific site, for that site's newsletter blast. */
+  async listConfirmedForBlast(siteId: string) {
     return this.prisma.subscriber.findMany({
-      where: { authorId, confirmedAt: { not: null } },
+      where: { siteId, confirmedAt: { not: null } },
       select: { email: true, unsubscribeToken: true },
     });
   }

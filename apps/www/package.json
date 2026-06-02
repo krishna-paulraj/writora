@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "clean": "rm -rf .next node_modules/.cache",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "format": "prettier --write \"{app,components,lib,hooks,styles}/**/*.{ts,tsx,css,md,mdx}\"",

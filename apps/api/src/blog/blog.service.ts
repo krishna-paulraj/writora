@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
@@ -14,6 +15,10 @@ import { QueueService } from '../queue/queue.service';
 import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
 import { sanitizeContent, computeReadTime } from './sanitize';
+import {
+  NotificationsService,
+  NotificationType,
+} from '../notifications/notifications.service';
 
 const NEWSLETTER_QUEUE = 'newsletter.blast';
 interface NewsletterJob {
@@ -24,6 +29,15 @@ interface NewsletterJob {
 // circular import on WebhookService (Webhook → Blog already exists).
 const WEBHOOK_BLOG_PUBLISHED_QUEUE = 'webhook.blog.published';
 interface WebhookPublishedEvent {
+  blogId: string;
+  authorId: string;
+}
+
+// CMS publish-out fanout queue — consumed by PublishModule. Its own queue (not
+// the webhook one) since RabbitMQ consumers on a shared queue compete. Constant
+// inlined here, like the webhook one, to avoid a circular import.
+const CMS_PUBLISH_FANOUT_QUEUE = 'cms.publish.fanout';
+interface CmsPublishEvent {
   blogId: string;
   authorId: string;
 }
@@ -46,6 +60,31 @@ function authorBlogsPattern(username: string) {
 function domainKey(domain: string) {
   return `blog:domain:${domain}`;
 }
+function siteListKey(slug: string) {
+  return `blog:public:site:list:${slug}`;
+}
+function siteDetailKey(slug: string, postSlug: string) {
+  return `blog:public:site:detail:${slug}:${postSlug}`;
+}
+
+// The per-publication public fields, sourced from Site (moved off User).
+const SITE_PUBLIC_SELECT = {
+  id: true,
+  blogTheme: true,
+  bio: true,
+  avatarUrl: true,
+  twitterHandle: true,
+  websiteUrl: true,
+} satisfies Prisma.SiteSelect;
+
+interface SitePublic {
+  id: string;
+  blogTheme: string;
+  bio: string | null;
+  avatarUrl: string | null;
+  twitterHandle: string | null;
+  websiteUrl: string | null;
+}
 
 @Injectable()
 export class BlogService implements OnModuleInit {
@@ -57,6 +96,7 @@ export class BlogService implements OnModuleInit {
     private configService: ConfigService,
     private cache: CacheService,
     private queue: QueueService,
+    private notifications: NotificationsService,
   ) {}
 
   async onModuleInit() {
@@ -91,7 +131,7 @@ export class BlogService implements OnModuleInit {
     );
   }
 
-  async create(authorId: string, dto: CreateBlogDto) {
+  async create(authorId: string, siteId: string, dto: CreateBlogDto) {
     const existing = await this.prisma.blog.findUnique({
       where: { authorId_slug: { authorId, slug: dto.slug } },
     });
@@ -106,15 +146,16 @@ export class BlogService implements OnModuleInit {
         content,
         readTime: computeReadTime(content),
         authorId,
+        siteId,
       },
     });
     await this.invalidateAuthorCache(authorId);
     return created;
   }
 
-  async findAllByAuthor(authorId: string) {
+  async findAllByAuthor(authorId: string, siteId: string) {
     return this.prisma.blog.findMany({
-      where: { authorId },
+      where: { authorId, siteId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -204,6 +245,11 @@ export class BlogService implements OnModuleInit {
         WEBHOOK_BLOG_PUBLISHED_QUEUE,
         { blogId: updated.id, authorId },
       );
+      // CMS auto cross-post fanout (separate consumer/queue).
+      await this.queue.enqueue<CmsPublishEvent>(CMS_PUBLISH_FANOUT_QUEUE, {
+        blogId: updated.id,
+        authorId,
+      });
     }
 
     return updated;
@@ -249,7 +295,7 @@ export class BlogService implements OnModuleInit {
     const now = new Date();
     const due = await this.prisma.blog.findMany({
       where: { published: false, scheduledAt: { lte: now } },
-      select: { id: true, authorId: true, newsletterSent: true },
+      select: { id: true, title: true, authorId: true, newsletterSent: true },
     });
     if (due.length === 0) return 0;
 
@@ -280,6 +326,19 @@ export class BlogService implements OnModuleInit {
         WEBHOOK_BLOG_PUBLISHED_QUEUE,
         { blogId: post.id, authorId: post.authorId },
       );
+      // CMS auto cross-post fanout for scheduled-publish path
+      await this.queue.enqueue<CmsPublishEvent>(CMS_PUBLISH_FANOUT_QUEUE, {
+        blogId: post.id,
+        authorId: post.authorId,
+      });
+      // Notify the author their scheduled post went live (they weren't watching).
+      await this.notifications.emit(post.authorId, {
+        type: NotificationType.BlogPublished,
+        title: `Scheduled post published: ${post.title}`,
+        body: 'Your scheduled post is now live.',
+        link: '/blogs',
+        meta: { blogId: post.id },
+      });
       await this.invalidateAuthorCache(post.authorId);
     }
 
@@ -299,7 +358,7 @@ export class BlogService implements OnModuleInit {
     if (!blog || !blog.published) return;
 
     const subscribers = await this.prisma.subscriber.findMany({
-      where: { authorId: blog.authorId, confirmedAt: { not: null } },
+      where: { siteId: blog.siteId, confirmedAt: { not: null } },
       select: { email: true, unsubscribeToken: true },
     });
     if (subscribers.length === 0) {
@@ -350,19 +409,13 @@ export class BlogService implements OnModuleInit {
     return deleted;
   }
 
-  // Preview (owner only, works for drafts)
+  // Preview (owner only, works for drafts). Theme comes from the post's site.
   async previewBySlug(authorId: string, slug: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: authorId },
-    });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
     const blog = await this.prisma.blog.findUnique({
       where: { authorId_slug: { authorId, slug } },
       include: {
         author: { select: { id: true, name: true, username: true } },
+        site: { select: { blogTheme: true } },
       },
     });
     if (!blog) {
@@ -371,7 +424,7 @@ export class BlogService implements OnModuleInit {
 
     return {
       blog,
-      blogTheme: user.blogTheme,
+      blogTheme: blog.site.blogTheme,
       previousPost: null,
       nextPost: null,
       relatedPosts: [],
@@ -388,10 +441,15 @@ export class BlogService implements OnModuleInit {
           slug: true,
           updatedAt: true,
           author: { select: { username: true } },
+          site: { select: { slug: true, isPrimary: true } },
         },
       });
+      // Primary sites stay addressed by username (back-compat); secondary sites
+      // by their slug. The www sitemap builds the URL from these.
       return blogs.map((b) => ({
         username: b.author.username,
+        siteSlug: b.site.slug,
+        isPrimary: b.site.isPrimary,
         slug: b.slug,
         updatedAt: b.updatedAt,
       }));
@@ -399,31 +457,51 @@ export class BlogService implements OnModuleInit {
   }
 
   /**
-   * Resolves a custom domain to its owner's username. Caches both hits and
-   * misses (as null) so unrelated traffic on unknown hosts doesn't keep
-   * hitting the DB.
+   * Resolves a custom domain to the owning site. Caches hits and misses so
+   * unknown-host traffic doesn't keep hitting the DB. Returns the owner's
+   * username + the site's slug + whether it's the primary site, so the proxy
+   * can rewrite to /[username] (primary) or /s/[siteSlug] (secondary).
    */
-  async findUsernameByDomain(
-    domain: string,
-  ): Promise<{ username: string } | null> {
+  async findUsernameByDomain(domain: string): Promise<{
+    username: string;
+    siteSlug: string;
+    isPrimary: boolean;
+  } | null> {
     const normalized = domain.toLowerCase().trim();
     if (!normalized) return null;
 
     const key = domainKey(normalized);
-    const cached = await this.cache.get<{ username: string | null }>(key);
-    if (cached !== null) {
-      return cached.username ? { username: cached.username } : null;
-    }
+    // Wrap in { value } so a cached MISS (value:null) is distinguishable from a
+    // cache-absent get (which returns null) — otherwise misses never cache.
+    type DomainResult = {
+      username: string;
+      siteSlug: string;
+      isPrimary: boolean;
+    } | null;
+    const cached = await this.cache.get<{ value: DomainResult }>(key);
+    if (cached) return cached.value;
 
-    const user = await this.prisma.user.findFirst({
+    const site = await this.prisma.site.findFirst({
       where: { customDomain: normalized },
-      select: { username: true },
+      select: {
+        slug: true,
+        isPrimary: true,
+        user: { select: { username: true } },
+      },
     });
-    await this.cache.set(key, { username: user?.username ?? null }, DOMAIN_TTL);
-    return user ? { username: user.username } : null;
+    const result: DomainResult = site
+      ? {
+          username: site.user.username,
+          siteSlug: site.slug,
+          isPrimary: site.isPrimary,
+        }
+      : null;
+    await this.cache.set(key, { value: result }, DOMAIN_TTL);
+    return result;
   }
 
-  // Public endpoints
+  // --- Public endpoints (primary site addressed by username) ----------------
+
   async findPublicByUsername(username: string) {
     return this.cache.wrap(publicListKey(username), PUBLIC_LIST_TTL, () =>
       this.findPublicByUsernameUncached(username),
@@ -433,32 +511,25 @@ export class BlogService implements OnModuleInit {
   private async findPublicByUsernameUncached(username: string) {
     const user = await this.prisma.user.findUnique({
       where: { username },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        sites: {
+          where: { isPrimary: true },
+          take: 1,
+          select: SITE_PUBLIC_SELECT,
+        },
+      },
     });
-    if (!user) {
+    if (!user || !user.sites[0]) {
       throw new NotFoundException('User not found');
     }
-
-    const blogs = await this.prisma.blog.findMany({
-      where: { authorId: user.id, published: true },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        author: { select: { id: true, name: true, username: true } },
-      },
+    return this.buildPublicList(user.sites[0], {
+      id: user.id,
+      name: user.name,
+      username: user.username,
     });
-
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        blogTheme: user.blogTheme,
-        bio: user.bio,
-        avatarUrl: user.avatarUrl,
-        twitterHandle: user.twitterHandle,
-        websiteUrl: user.websiteUrl,
-      },
-      blogs,
-    };
   }
 
   async findPublicByUsernameAndSlug(username: string, slug: string) {
@@ -475,58 +546,117 @@ export class BlogService implements OnModuleInit {
   ) {
     const user = await this.prisma.user.findUnique({
       where: { username },
-    });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    const blog = await this.prisma.blog.findUnique({
-      where: { authorId_slug: { authorId: user.id, slug } },
-      include: {
-        author: { select: { id: true, name: true, username: true } },
+      select: {
+        sites: {
+          where: { isPrimary: true },
+          take: 1,
+          select: SITE_PUBLIC_SELECT,
+        },
       },
+    });
+    const site = user?.sites[0];
+    if (!site) throw new NotFoundException('Blog not found');
+    return this.buildPublicDetail(site, slug);
+  }
+
+  // --- Public endpoints (secondary site addressed by /s/[siteSlug]) ---------
+
+  async findPublicBySiteSlug(siteSlug: string) {
+    return this.cache.wrap(siteListKey(siteSlug), PUBLIC_LIST_TTL, async () => {
+      const site = await this.prisma.site.findUnique({
+        where: { slug: siteSlug },
+        select: {
+          ...SITE_PUBLIC_SELECT,
+          user: { select: { id: true, name: true, username: true } },
+        },
+      });
+      if (!site) throw new NotFoundException('Site not found');
+      return this.buildPublicList(site, site.user);
+    });
+  }
+
+  async findPublicBySiteSlugAndPostSlug(siteSlug: string, slug: string) {
+    return this.cache.wrap(
+      siteDetailKey(siteSlug, slug),
+      PUBLIC_DETAIL_TTL,
+      async () => {
+        const site = await this.prisma.site.findUnique({
+          where: { slug: siteSlug },
+          select: SITE_PUBLIC_SELECT,
+        });
+        if (!site) throw new NotFoundException('Blog not found');
+        return this.buildPublicDetail(site, slug);
+      },
+    );
+  }
+
+  // --- Shared public builders (scope strictly by siteId) --------------------
+
+  private async buildPublicList(
+    site: SitePublic,
+    author: { id: string; name: string; username: string },
+  ) {
+    const blogs = await this.prisma.blog.findMany({
+      where: { siteId: site.id, published: true },
+      orderBy: { createdAt: 'desc' },
+      include: { author: { select: { id: true, name: true, username: true } } },
+    });
+    return { user: this.publicProfile(site, author), blogs };
+  }
+
+  private async buildPublicDetail(site: SitePublic, slug: string) {
+    const blog = await this.prisma.blog.findUnique({
+      where: { siteId_slug: { siteId: site.id, slug } },
+      include: { author: { select: { id: true, name: true, username: true } } },
     });
     if (!blog || !blog.published) {
       throw new NotFoundException('Blog not found');
     }
 
-    // Get adjacent posts for navigation
     const allBlogs = await this.prisma.blog.findMany({
-      where: { authorId: user.id, published: true },
+      where: { siteId: site.id, published: true },
       orderBy: { createdAt: 'asc' },
       select: { id: true, slug: true, title: true },
     });
-
     const currentIndex = allBlogs.findIndex((b) => b.id === blog.id);
     const previousPost = currentIndex > 0 ? allBlogs[currentIndex - 1] : null;
     const nextPost =
-      currentIndex < allBlogs.length - 1 ? allBlogs[currentIndex + 1] : null;
+      currentIndex >= 0 && currentIndex < allBlogs.length - 1
+        ? allBlogs[currentIndex + 1]
+        : null;
 
-    // Get related posts (same category first, then others)
     const relatedBlogs = await this.prisma.blog.findMany({
-      where: {
-        authorId: user.id,
-        published: true,
-        id: { not: blog.id },
-      },
+      where: { siteId: site.id, published: true, id: { not: blog.id } },
       orderBy: [{ category: 'asc' }, { createdAt: 'desc' }],
       take: 3,
-      include: {
-        author: { select: { id: true, name: true, username: true } },
-      },
+      include: { author: { select: { id: true, name: true, username: true } } },
     });
-
-    // Sort related: same category first
     const sameCat = relatedBlogs.filter((b) => b.category === blog.category);
     const otherCat = relatedBlogs.filter((b) => b.category !== blog.category);
     const related = [...sameCat, ...otherCat].slice(0, 3);
 
     return {
       blog,
-      blogTheme: user.blogTheme,
+      blogTheme: site.blogTheme,
       previousPost,
       nextPost,
       relatedPosts: related,
+    };
+  }
+
+  private publicProfile(
+    site: SitePublic,
+    author: { id: string; name: string; username: string },
+  ) {
+    return {
+      id: author.id,
+      name: author.name,
+      username: author.username,
+      blogTheme: site.blogTheme,
+      bio: site.bio,
+      avatarUrl: site.avatarUrl,
+      twitterHandle: site.twitterHandle,
+      websiteUrl: site.websiteUrl,
     };
   }
 }

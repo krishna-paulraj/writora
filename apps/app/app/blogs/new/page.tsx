@@ -9,8 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CategoryCombobox } from "@/components/category-combobox";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { apiFetch, apiError } from "@/lib/api";
 
 function slugify(text: string) {
   return text
@@ -42,10 +41,9 @@ export default function NewBlogPage() {
     setError("");
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/blogs`, {
+      const res = await apiFetch(`/blogs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           ...form,
           content: "",
@@ -57,8 +55,7 @@ export default function NewBlogPage() {
         toast.success("Blog created! Start writing.");
         router.push(`/blogs/${blog.id}/edit`);
       } else {
-        const data = await res.json();
-        const msg = data.message || "Failed to create blog";
+        const msg = await apiError(res, "Failed to create blog");
         setError(msg);
         toast.error(msg);
       }

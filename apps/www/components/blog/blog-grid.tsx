@@ -11,9 +11,10 @@ import type { BlogPost } from "./types";
 interface BlogGridProps {
   posts: BlogPost[];
   username: string;
+  basePath?: string;
 }
 
-export function BlogGrid({ posts, username }: BlogGridProps) {
+export function BlogGrid({ posts, username, basePath }: BlogGridProps) {
   const [selectedTab, setSelectedTab] = useState("All");
   const [search, setSearch] = useState("");
 
@@ -85,7 +86,12 @@ export function BlogGrid({ posts, username }: BlogGridProps) {
             ) : (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredPosts.map((post) => (
-                  <BlogCard key={post.id} post={post} username={username} />
+                  <BlogCard
+                    key={post.id}
+                    post={post}
+                    username={username}
+                    basePath={basePath}
+                  />
                 ))}
               </div>
             )}

@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 import { RegisterDto } from './dto/register.dto';
 
 const VERIFY_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -21,6 +22,37 @@ const PROFILE_CACHE_TTL = 30; // seconds — nav freshness vs DB load
 function profileKey(userId: string) {
   return `auth:profile:${userId}`;
 }
+
+// Usernames double as the primary site's public slug (/[username]) and must not
+// collide with www static routes, the /s/ secondary-site prefix, or the
+// /[username] sub-routes — otherwise routing breaks.
+const RESERVED_USERNAMES = new Set([
+  's',
+  'api',
+  'admin',
+  'app',
+  'www',
+  'dashboard',
+  'settings',
+  'login',
+  'signup',
+  'logout',
+  'about',
+  'pricing',
+  'contact',
+  'privacy',
+  'terms',
+  'faq',
+  'blog',
+  'feed',
+  'sitemap',
+  'robots',
+  'verify-email',
+  'forgot-password',
+  'reset-password',
+  'confirm-subscription',
+  'unsubscribe',
+]);
 
 function genToken(): string {
   return randomBytes(32).toString('hex');
@@ -34,6 +66,7 @@ export class AuthService {
     private emailService: EmailService,
     private configService: ConfigService,
     private cache: CacheService,
+    private entitlements: EntitlementsService,
   ) {}
 
   private wwwUrl(): string {
@@ -85,6 +118,21 @@ export class AuthService {
     return this.cache.wrap(profileKey(userId), PROFILE_CACHE_TTL, async () => {
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
       if (!user) throw new UnauthorizedException('User not found');
+      const [sites, entitlements] = await Promise.all([
+        this.prisma.site.findMany({
+          where: { userId },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            isPrimary: true,
+            blogTheme: true,
+            customDomain: true,
+          },
+        }),
+        this.entitlements.summary(userId),
+      ]);
       return {
         id: user.id,
         name: user.name,
@@ -97,6 +145,9 @@ export class AuthService {
         twitterHandle: user.twitterHandle,
         websiteUrl: user.websiteUrl,
         emailVerified: user.emailVerified,
+        plan: entitlements.plan,
+        entitlements,
+        sites,
       };
     });
   }
@@ -117,7 +168,6 @@ export class AuthService {
       name?: string;
       username?: string;
       blogTheme?: string;
-      customDomain?: string | null;
       bio?: string;
       avatarUrl?: string;
       twitterHandle?: string;
@@ -126,10 +176,13 @@ export class AuthService {
   ) {
     const current = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { username: true, customDomain: true },
+      select: { username: true },
     });
 
     if (data.username) {
+      if (RESERVED_USERNAMES.has(data.username.toLowerCase())) {
+        throw new ConflictException('That username is reserved');
+      }
       const existing = await this.prisma.user.findUnique({
         where: { username: data.username },
       });
@@ -138,30 +191,36 @@ export class AuthService {
       }
     }
 
-    // Normalize and validate custom domain so cache lookups (which lowercase
-    // the host header) line up with stored values.
-    const normalized: typeof data = { ...data };
-    if (data.customDomain !== undefined) {
-      const trimmed = data.customDomain?.trim().toLowerCase() ?? '';
-      normalized.customDomain = trimmed === '' ? null : trimmed;
-    }
+    // customDomain is a gated, per-site setting — handled by PATCH
+    // /sites/:id/domain (SiteService), NOT here. Strip it defensively so a
+    // legacy client can't write the deprecated, ungated User column.
+    const normalized: Record<string, unknown> = { ...data };
+    delete normalized.customDomain;
 
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: normalized,
     });
-    await this.invalidateUserCache(userId, current?.username);
-    if (
-      data.customDomain !== undefined &&
-      current?.customDomain !== normalized.customDomain
-    ) {
-      const keys: string[] = [];
-      if (current?.customDomain)
-        keys.push(`blog:domain:${current.customDomain}`);
-      if (normalized.customDomain)
-        keys.push(`blog:domain:${normalized.customDomain}`);
-      if (keys.length) await this.cache.del(...keys);
+
+    // Mirror the per-publication profile fields onto the primary site, which is
+    // what public pages now render from. (customDomain is gated + per-site, set
+    // via PATCH /sites/:id/domain — not mirrored here.)
+    const siteFields: Record<string, unknown> = {};
+    if (data.blogTheme !== undefined) siteFields.blogTheme = data.blogTheme;
+    if (data.bio !== undefined) siteFields.bio = data.bio ?? null;
+    if (data.avatarUrl !== undefined)
+      siteFields.avatarUrl = data.avatarUrl ?? null;
+    if (data.twitterHandle !== undefined)
+      siteFields.twitterHandle = data.twitterHandle ?? null;
+    if (data.websiteUrl !== undefined)
+      siteFields.websiteUrl = data.websiteUrl ?? null;
+    if (Object.keys(siteFields).length > 0) {
+      await this.prisma.site.updateMany({
+        where: { userId, isPrimary: true },
+        data: siteFields,
+      });
     }
+    await this.invalidateUserCache(userId, current?.username);
     return {
       id: user.id,
       name: user.name,
@@ -332,10 +391,15 @@ export class AuthService {
 
     while (true) {
       const candidate = suffix === 0 ? username : `${username}${suffix}`;
-      const existing = await this.prisma.user.findUnique({
-        where: { username: candidate },
-      });
-      if (!existing) return candidate;
+      // Skip reserved words and any in-use username, plus existing Site slugs
+      // (username seeds the primary site's slug, which is globally unique).
+      if (!RESERVED_USERNAMES.has(candidate)) {
+        const [existingUser, existingSite] = await Promise.all([
+          this.prisma.user.findUnique({ where: { username: candidate } }),
+          this.prisma.site.findUnique({ where: { slug: candidate } }),
+        ]);
+        if (!existingUser && !existingSite) return candidate;
+      }
       suffix++;
     }
   }

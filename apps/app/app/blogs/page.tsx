@@ -11,10 +11,13 @@ import {
   ExternalLinkIcon,
   SearchIcon,
   SparklesIcon,
+  SendIcon,
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { SiteHeader } from "@/components/site-header";
+import { PublishToDialog } from "@/components/publish-to-dialog";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -95,9 +98,7 @@ export default function BlogsPage() {
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch(`${API_URL}/categories`, {
-        credentials: "include",
-      });
+      const res = await apiFetch(`/categories`);
       if (res.ok) {
         setCategories(await res.json());
       }
@@ -110,10 +111,9 @@ export default function BlogsPage() {
     if (!newCategoryName.trim()) return;
     setCreatingCategory(true);
     try {
-      const res = await fetch(`${API_URL}/categories`, {
+      const res = await apiFetch(`/categories`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ name: newCategoryName.trim() }),
       });
       if (res.ok) {
@@ -150,7 +150,7 @@ export default function BlogsPage() {
 
   const fetchBlogs = async () => {
     try {
-      const res = await fetch(`${API_URL}/blogs`, { credentials: "include" });
+      const res = await apiFetch(`/blogs`);
       if (res.ok) {
         const data = await res.json();
         setBlogs(data);
@@ -372,6 +372,20 @@ export default function BlogsPage() {
                           >
                             <PencilIcon className="size-4" />
                           </Button>
+                          {blog.published && (
+                            <PublishToDialog
+                              blogId={blog.id}
+                              blogTitle={blog.title}
+                            >
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Publish to…"
+                              >
+                                <SendIcon className="size-4" />
+                              </Button>
+                            </PublishToDialog>
+                          )}
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button

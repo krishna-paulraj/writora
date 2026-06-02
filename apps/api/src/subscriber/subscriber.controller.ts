@@ -13,6 +13,8 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { SubscriberService } from './subscriber.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SiteContextGuard } from '../site/site-context.guard';
+import { CurrentSite } from '../site/current-site.decorator';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -44,12 +46,12 @@ export class SubscriberController {
     return this.subscriberService.unsubscribe(token);
   }
 
-  // Authenticated: list my subscribers
-  @UseGuards(JwtAuthGuard)
+  // Authenticated: list my subscribers for the active site
+  @UseGuards(JwtAuthGuard, SiteContextGuard)
   @Get('me')
-  listMine(@Req() req: Request) {
+  listMine(@Req() req: Request, @CurrentSite() siteId: string) {
     const user = req.user as { id: string };
-    return this.subscriberService.listForAuthor(user.id);
+    return this.subscriberService.listForAuthor(user.id, siteId);
   }
 
   // Authenticated: manually remove one of my subscribers

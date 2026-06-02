@@ -21,9 +21,23 @@ model User {
   websiteUrl           String?
   emailVerified        DateTime?
   inboundWebhookSecret String?   @unique
+  // Billing (account-level). Stripe is integrated via raw fetch; these mirror
+  // the subscription state. plan defaults to "free" so self-host works unkeyed.
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?
+  plan                 String    @default("free") // free | pro | business
+  subscriptionStatus   String? // active | trialing | past_due | canceled
+  currentPeriodEnd     DateTime?
+  // Monthly AI-generation usage, reserved atomically. aiUsageMonth is "YYYY-MM".
+  aiUsageMonth         String?
+  aiUsageCount         Int       @default(0)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
+  // DEPRECATED (moved to Site this phase; kept one release for rollback):
+  // blogTheme, customDomain, bio, avatarUrl, twitterHandle, websiteUrl.
+
+  sites              Site[]
   blogs              Blog[]
   categories         Category[]
   subscribers        Subscriber[]
@@ -32,6 +46,41 @@ model User {
   webhookEndpoints   WebhookEndpoint[]
   articleJobs        ArticleJob[]
   savedKeywords      SavedKeyword[]
+  contentPlans       ContentPlan[]
+  publishTargets     PublishTarget[]
+  notifications      Notification[]
+}
+
+// A publication owned by a user. A user may own several. The primary site keeps
+// the owner's username as its public slug (existing /[username] URLs keep
+// working); additional sites are addressed at /s/[slug]. Per-publication
+// identity (theme, custom domain, author profile) lives here.
+model Site {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  slug          String   @unique // global public identifier; primary site = owner.username
+  subdomain     String?  @unique // reserved for future subdomain routing (unused this phase)
+  isPrimary     Boolean  @default(false)
+  blogTheme     String   @default("default")
+  customDomain  String?  @unique
+  bio           String?
+  avatarUrl     String?
+  twitterHandle String?
+  websiteUrl    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  blogs          Blog[]
+  subscribers    Subscriber[]
+  categories     Category[]
+  articleJobs    ArticleJob[]
+  contentPlans   ContentPlan[]
+  publishTargets PublishTarget[]
+
+  @@index([userId])
+  @@index([userId, isPrimary])
 }
 
 model Category {
@@ -40,35 +89,44 @@ model Category {
   slug      String
   userId    String
   user      User     @relation(fields: [userId], references: [id])
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
   @@unique([userId, slug])
+  @@unique([siteId, slug])
+  @@index([siteId])
 }
 
 model Blog {
-  id              String     @id @default(cuid())
-  slug            String
-  title           String
-  description     String
-  content         String
-  imageUrl        String?
-  category        String
-  targetKeyword   String?
-  readTime        Int        @default(5)
-  featured        Boolean    @default(false)
-  published       Boolean    @default(false)
-  publishedAt     DateTime?
-  scheduledAt     DateTime?
-  newsletterSent  Boolean    @default(false)
-  authorId        String
-  author          User       @relation(fields: [authorId], references: [id])
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  views           BlogView[]
-  articleJob      ArticleJob?
+  id             String      @id @default(cuid())
+  slug           String
+  title          String
+  description    String
+  content        String
+  imageUrl       String?
+  category       String
+  targetKeyword  String?
+  readTime       Int         @default(5)
+  featured       Boolean     @default(false)
+  published      Boolean     @default(false)
+  publishedAt    DateTime?
+  scheduledAt    DateTime?
+  newsletterSent Boolean     @default(false)
+  authorId       String
+  author         User        @relation(fields: [authorId], references: [id])
+  siteId         String
+  site           Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  views          BlogView[]
+  articleJob     ArticleJob?
+  publishRecords PublishRecord[]
 
   @@unique([authorId, slug])
+  @@unique([siteId, slug])
   @@index([scheduledAt])
+  @@index([siteId])
 }
 
 model BlogView {
@@ -87,13 +145,17 @@ model Subscriber {
   email            String
   authorId         String
   author           User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  siteId           String
+  site             Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
   confirmToken     String    @unique
   unsubscribeToken String    @unique
   confirmedAt      DateTime?
   createdAt        DateTime  @default(now())
 
   @@unique([authorId, email])
+  @@unique([siteId, email])
   @@index([authorId, confirmedAt])
+  @@index([siteId, confirmedAt])
 }
 
 model PasswordReset {
@@ -136,31 +198,36 @@ model WebhookEndpoint {
 }
 
 model ArticleJob {
-  id            String    @id @default(cuid())
-  status        String    @default("pending") // pending | running | done | failed
+  id            String       @id @default(cuid())
+  status        String       @default("pending") // pending | running | done | failed
   topic         String
   targetKeyword String?
-  tone          String    @default("professional")
-  length        String    @default("medium") // short | medium | long
+  tone          String       @default("professional")
+  length        String       @default("medium") // short | medium | long
   audience      String?
   category      String?
   keywordData   Json?
   contentPlanId String?
-  source        String    @default("manual") // manual | autopilot
+  contentPlan   ContentPlan? @relation(fields: [contentPlanId], references: [id], onDelete: SetNull)
+  source        String       @default("manual") // manual | autopilot
   outline       Json?
-  progress      Int       @default(0)
-  blogId        String?   @unique
-  blog          Blog?     @relation(fields: [blogId], references: [id], onDelete: SetNull)
+  progress      Int          @default(0)
+  blogId        String?      @unique
+  blog          Blog?        @relation(fields: [blogId], references: [id], onDelete: SetNull)
   error         String?
   authorId      String
-  author        User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author        User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  siteId        String
+  site          Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
   startedAt     DateTime?
   finishedAt    DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([authorId, status])
   @@index([status])
+  @@index([contentPlanId])
+  @@index([siteId])
 }
 
 model SavedKeyword {
@@ -177,4 +244,131 @@ model SavedKeyword {
 
   @@unique([userId, keyword])
   @@index([userId])
+}
+
+// An "autopilot": brainstorms a cluster of article ideas and drips them out as
+// scheduled ArticleJobs at a fixed cadence. Each generated job lands a draft
+// Blog via the existing generation pipeline (optionally auto-published).
+model ContentPlan {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  siteId         String
+  site           Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  title          String
+  topic          String
+  audience       String?
+  tone           String    @default("professional")
+  length         String    @default("medium") // short | medium | long
+  category       String?
+  cadence        String    @default("weekly") // daily | every_3_days | weekly | biweekly | monthly
+  status         String    @default("active") // active | paused | completed
+  autoPublish    Boolean   @default(false)
+  keywordData    Json?
+  totalTarget    Int?
+  generatedCount Int       @default(0)
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  items       ContentPlanItem[]
+  articleJobs ArticleJob[]
+
+  @@index([userId])
+  @@index([siteId])
+  @@index([status, nextRunAt])
+}
+
+// A single planned article within a ContentPlan. Dispatched (one per cadence
+// slot) into an ArticleJob; `articleJobId` links to the job that fulfils it.
+model ContentPlanItem {
+  id            String      @id @default(cuid())
+  planId        String
+  plan          ContentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  title         String
+  targetKeyword String?
+  keywords      Json?
+  status        String      @default("planned") // planned | queued | generating | done | failed | skipped
+  position      Int         @default(0)
+  // Real per-article target date the planner UI drives. The scheduler dispatches
+  // an item once scheduledFor <= now (null = no date yet → never date-dispatched).
+  scheduledFor  DateTime?
+  articleJobId  String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([planId, status])
+  @@index([planId, position])
+  @@index([status, scheduledFor])
+}
+
+// A connected external CMS a user can publish their posts out to (WordPress via
+// the Writora Connector plugin, Dev.to, …). `credentials` is an AES-256-GCM
+// encrypted JSON blob (never returned to the client).
+model PublishTarget {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  siteId        String
+  site          Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  platform      String // wordpress | devto
+  name          String
+  credentials   String // encrypted JSON of platform credentials
+  enabled       Boolean         @default(true)
+  autoPublish   Boolean         @default(false) // cross-post automatically when a blog is published
+  lastPublishAt DateTime?
+  lastStatus    String? // ok | error
+  lastError     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  records       PublishRecord[]
+
+  @@index([userId])
+  @@index([siteId])
+  @@index([userId, enabled, autoPublish])
+}
+
+// The outcome of publishing one Blog to one PublishTarget. Unique per
+// (target, blog) so re-publishing upserts and the adapter can update the remote
+// post (via externalId) instead of creating a duplicate.
+model PublishRecord {
+  id          String        @id @default(cuid())
+  targetId    String
+  target      PublishTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  blogId      String
+  blog        Blog          @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  status      String        @default("pending") // pending | success | failed
+  externalId  String?
+  externalUrl String?
+  error       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([targetId, blogId])
+  @@index([blogId])
+  @@index([targetId])
+}
+
+// An in-app notification surfaced in the dashboard's bell inbox. Created
+// (best-effort) by background work the user isn't watching — article
+// generation finishing, autopilot completing a plan, a scheduled post going
+// live, a cross-post succeeding/failing. `type` drives the icon/styling on the
+// client; `link` is an in-app route the row navigates to; `meta` holds related
+// ids (blogId, jobId, planId, …) for future deep-linking.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // article.completed | article.failed | publish.success | publish.failed | plan.completed | blog.published
+  title     String
+  body      String
+  link      String?
+  meta      Json?
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
 }

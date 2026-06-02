@@ -132,7 +132,14 @@ export class WebhookService {
       );
     }
 
-    const blog = await this.blogService.create(userId, {
+    // Inbound posts land on the user's primary site.
+    const site = await this.prisma.site.findFirst({
+      where: { userId, isPrimary: true },
+      select: { id: true },
+    });
+    if (!site) throw new NotFoundException('No site found for this account');
+
+    const blog = await this.blogService.create(userId, site.id, {
       title: payload.title,
       slug,
       description: payload.description ?? '',

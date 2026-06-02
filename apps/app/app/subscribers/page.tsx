@@ -40,8 +40,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { apiFetch } from "@/lib/api";
 
 interface Subscriber {
   id: string;
@@ -69,9 +68,7 @@ export default function SubscribersPage() {
 
   const fetchSubs = async () => {
     try {
-      const res = await fetch(`${API_URL}/subscribers/me`, {
-        credentials: "include",
-      });
+      const res = await apiFetch(`/subscribers/me`);
       if (res.ok) setData(await res.json());
     } catch {
       // ignore
@@ -85,9 +82,8 @@ export default function SubscribersPage() {
   }, []);
 
   const remove = async (id: string, email: string) => {
-    const res = await fetch(`${API_URL}/subscribers/me/${id}`, {
+    const res = await apiFetch(`/subscribers/me/${id}`, {
       method: "DELETE",
-      credentials: "include",
     });
     if (res.ok) {
       toast.success(`Removed ${email}`);

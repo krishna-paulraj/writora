@@ -11,23 +11,29 @@ import {
 import * as express from 'express';
 import { CategoryService } from './category.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SiteContextGuard } from '../site/site-context.guard';
+import { CurrentSite } from '../site/current-site.decorator';
 import { CreateCategoryDto } from './dto/create-category.dto';
 
 @Controller('categories')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SiteContextGuard)
 export class CategoryController {
   constructor(private categoryService: CategoryService) {}
 
   @Post()
-  create(@Req() req: express.Request, @Body() dto: CreateCategoryDto) {
+  create(
+    @Req() req: express.Request,
+    @CurrentSite() siteId: string,
+    @Body() dto: CreateCategoryDto,
+  ) {
     const user = req.user as { id: string };
-    return this.categoryService.create(user.id, dto);
+    return this.categoryService.create(user.id, siteId, dto);
   }
 
   @Get()
-  findAll(@Req() req: express.Request) {
+  findAll(@Req() req: express.Request, @CurrentSite() siteId: string) {
     const user = req.user as { id: string };
-    return this.categoryService.findAll(user.id);
+    return this.categoryService.findAll(user.id, siteId);
   }
 
   @Delete(':id')

@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 type Mocked<T> = {
   [K in keyof T]: T[K] extends (...args: infer A) => infer R
@@ -16,7 +17,7 @@ type Mocked<T> = {
 
 describe('AuthService', () => {
   let service: AuthService;
-  let prisma: { user: Mocked<{ findUnique: any; create: any; update: any }> };
+  let prisma: any;
   let jwt: Mocked<{ sign: any }>;
   let cache: Mocked<{
     get: any;
@@ -36,6 +37,11 @@ describe('AuthService', () => {
         findUnique: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+      },
+      site: {
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn(),
       },
     };
     jwt = { sign: jest.fn(() => 'signed.jwt.token') };
@@ -61,6 +67,10 @@ describe('AuthService', () => {
         {
           provide: ConfigService,
           useValue: { get: jest.fn(() => undefined) },
+        },
+        {
+          provide: EntitlementsService,
+          useValue: { summary: jest.fn().mockResolvedValue({ plan: 'free' }) },
         },
       ],
     }).compile();
@@ -192,112 +202,55 @@ describe('AuthService', () => {
   });
 
   describe('updateProfile', () => {
-    it('normalizes customDomain to lowercase and trims it', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce({
-        username: 'alice',
-        customDomain: null,
-      });
-      prisma.user.update.mockResolvedValue({
-        id: 'u1',
-        name: 'Alice',
-        email: 'a@e.com',
-        username: 'alice',
-        blogTheme: 'default',
-        customDomain: 'foo.com',
-        bio: null,
-        avatarUrl: null,
-        twitterHandle: null,
-        websiteUrl: null,
-        emailVerified: null,
-      });
+    const updatedUser = {
+      id: 'u1',
+      name: 'Alice',
+      email: 'a@e.com',
+      username: 'alice',
+      blogTheme: 'default',
+      customDomain: null,
+      bio: null,
+      avatarUrl: null,
+      twitterHandle: null,
+      websiteUrl: null,
+      emailVerified: null,
+    };
 
-      await service.updateProfile('u1', { customDomain: '  FOO.com ' });
+    it('updates the name and mirrors profile fields to the primary site', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ username: 'alice' });
+      prisma.user.update.mockResolvedValue(updatedUser);
 
-      const updateCall = prisma.user.update.mock.calls[0][0];
-      expect(updateCall.data.customDomain).toBe('foo.com');
-    });
-
-    it('clears customDomain when given an empty string', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce({
-        username: 'alice',
-        customDomain: 'old.com',
-      });
-      prisma.user.update.mockResolvedValue({
-        id: 'u1',
-        name: 'Alice',
-        email: 'a@e.com',
-        username: 'alice',
-        blogTheme: 'default',
-        customDomain: null,
-        bio: null,
-        avatarUrl: null,
-        twitterHandle: null,
-        websiteUrl: null,
-        emailVerified: null,
-      });
-
-      await service.updateProfile('u1', { customDomain: '' });
+      await service.updateProfile('u1', { name: 'Alice Smith', bio: 'hi' });
 
       const updateCall = prisma.user.update.mock.calls[0][0];
-      expect(updateCall.data.customDomain).toBeNull();
+      expect(updateCall.data.name).toBe('Alice Smith');
+      // Profile fields mirror to the primary site (public pages read from it).
+      expect(prisma.site.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'u1', isPrimary: true },
+        data: { bio: 'hi' },
+      });
     });
 
-    it('invalidates the domain cache for both old and new domain', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce({
-        username: 'alice',
-        customDomain: 'old.com',
-      });
-      prisma.user.update.mockResolvedValue({
-        id: 'u1',
+    it('never writes the deprecated customDomain via /auth/me', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ username: 'alice' });
+      prisma.user.update.mockResolvedValue(updatedUser);
+
+      // A legacy client may still send customDomain — it must be ignored here
+      // (domains are gated + per-site via PATCH /sites/:id/domain).
+      await service.updateProfile('u1', {
         name: 'Alice',
-        email: 'a@e.com',
-        username: 'alice',
-        blogTheme: 'default',
-        customDomain: 'new.com',
-        bio: null,
-        avatarUrl: null,
-        twitterHandle: null,
-        websiteUrl: null,
-        emailVerified: null,
-      });
+        customDomain: 'evil.com',
+      } as unknown as { name: string });
 
-      await service.updateProfile('u1', { customDomain: 'new.com' });
-
-      const delCalls = cache.del.mock.calls.flat();
-      expect(delCalls).toEqual(
-        expect.arrayContaining(['blog:domain:old.com', 'blog:domain:new.com']),
-      );
+      const updateCall = prisma.user.update.mock.calls[0][0];
+      expect(updateCall.data.customDomain).toBeUndefined();
     });
 
-    it('does not touch domain cache when customDomain is unchanged', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce({
-        username: 'alice',
-        customDomain: null,
-      });
-      prisma.user.update.mockResolvedValue({
-        id: 'u1',
-        name: 'Alice Smith',
-        email: 'a@e.com',
-        username: 'alice',
-        blogTheme: 'default',
-        customDomain: null,
-        bio: null,
-        avatarUrl: null,
-        twitterHandle: null,
-        websiteUrl: null,
-        emailVerified: null,
-      });
-
-      cache.del.mockClear();
-      await service.updateProfile('u1', { name: 'Alice Smith' });
-
-      // del may still be called for the profile cache key, but not for any
-      // blog:domain:* key
-      const allDelArgs = cache.del.mock.calls.flat();
-      const domainKeys = allDelArgs.filter((k: string) =>
-        k.startsWith('blog:domain:'),
-      );
-      expect(domainKeys).toHaveLength(0);
+    it('rejects a reserved username', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce({ username: 'alice' });
+      await expect(
+        service.updateProfile('u1', { username: 's' }),
+      ).rejects.toBeInstanceOf(ConflictException);
     });
   });
 });

@@ -19,15 +19,21 @@ function getWwwHostname(): string {
 
 const WWW_HOSTNAME = getWwwHostname();
 
-async function resolveCustomDomain(host: string): Promise<string | null> {
+interface DomainSite {
+  username: string;
+  siteSlug: string;
+  isPrimary: boolean;
+}
+
+async function resolveCustomDomain(host: string): Promise<DomainSite | null> {
   try {
     const res = await fetch(
       `${API_URL}/blogs/by-domain/${encodeURIComponent(host)}`,
       { next: { revalidate: 60 } },
     );
     if (!res.ok) return null;
-    const data = (await res.json()) as { username?: string } | null;
-    return data?.username ?? null;
+    const data = (await res.json()) as DomainSite | null;
+    return data?.username ? data : null;
   } catch {
     return null;
   }
@@ -65,21 +71,22 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const username = await resolveCustomDomain(host);
-  if (!username) return NextResponse.next();
+  const site = await resolveCustomDomain(host);
+  if (!site) return NextResponse.next();
 
-  // Strip a leading `/{username}` if it's already present so internal links
-  // don't get double-prefixed. Then prefix unconditionally.
+  // Primary site is addressed by username (existing pages); secondary sites by
+  // /s/[siteSlug]. Strip a leading base if already present so internal links
+  // don't get double-prefixed, then prefix unconditionally.
+  const base = site.isPrimary ? `/${site.username}` : `/s/${site.siteSlug}`;
   let scoped = pathname;
-  if (scoped === `/${username}`) {
+  if (scoped === base) {
     scoped = "";
-  } else if (scoped.startsWith(`/${username}/`)) {
-    scoped = scoped.slice(`/${username}`.length);
+  } else if (scoped.startsWith(`${base}/`)) {
+    scoped = scoped.slice(base.length);
   }
 
   const url = request.nextUrl.clone();
-  url.pathname =
-    scoped === "" || scoped === "/" ? `/${username}` : `/${username}${scoped}`;
+  url.pathname = scoped === "" || scoped === "/" ? base : `${base}${scoped}`;
   return NextResponse.rewrite(url);
 }
 

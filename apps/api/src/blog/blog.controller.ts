@@ -13,6 +13,8 @@ import {
 import * as express from 'express';
 import { BlogService } from './blog.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SiteContextGuard } from '../site/site-context.guard';
+import { CurrentSite } from '../site/current-site.decorator';
 import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
 
@@ -33,18 +35,22 @@ export class BlogController {
   }
 
   // Protected routes (require auth)
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, SiteContextGuard)
   @Post()
-  create(@Req() req: express.Request, @Body() dto: CreateBlogDto) {
+  create(
+    @Req() req: express.Request,
+    @CurrentSite() siteId: string,
+    @Body() dto: CreateBlogDto,
+  ) {
     const user = req.user as { id: string };
-    return this.blogService.create(user.id, dto);
+    return this.blogService.create(user.id, siteId, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, SiteContextGuard)
   @Get()
-  findAll(@Req() req: express.Request) {
+  findAll(@Req() req: express.Request, @CurrentSite() siteId: string) {
     const user = req.user as { id: string };
-    return this.blogService.findAllByAuthor(user.id);
+    return this.blogService.findAllByAuthor(user.id, siteId);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -93,7 +99,21 @@ export class BlogController {
     return this.blogService.previewBySlug(user.id, slug);
   }
 
-  // Public routes
+  // Public routes — site-slug variants declared first so the literal `site`
+  // segment isn't captured by `public/:username`.
+  @Get('public/site/:slug')
+  findPublicBySiteSlug(@Param('slug') slug: string) {
+    return this.blogService.findPublicBySiteSlug(slug);
+  }
+
+  @Get('public/site/:slug/:postSlug')
+  findPublicBySiteSlugAndPost(
+    @Param('slug') slug: string,
+    @Param('postSlug') postSlug: string,
+  ) {
+    return this.blogService.findPublicBySiteSlugAndPostSlug(slug, postSlug);
+  }
+
   @Get('public/:username')
   findPublicByUsername(@Param('username') username: string) {
     return this.blogService.findPublicByUsername(username);
