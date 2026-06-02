@@ -9,5 +9,6 @@ import { BlogModule } from '../blog/blog.module';
   imports: [AuthModule, BlogModule],
   controllers: [AiController],
   providers: [AiService, ArticleGenerationService],
+  exports: [AiService, ArticleGenerationService],
 })
 export class AiModule {}

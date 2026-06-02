@@ -2,6 +2,8 @@ import { Controller, Get, Post, Param, Req, UseGuards } from '@nestjs/common';
 import * as express from 'express';
 import { AnalyticsService } from './analytics.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SiteContextGuard } from '../site/site-context.guard';
+import { CurrentSite } from '../site/current-site.decorator';
 
 @Controller('analytics')
 export class AnalyticsController {
@@ -35,11 +37,14 @@ export class AnalyticsController {
     return this.analyticsService.getBlogAnalytics(user.id);
   }
 
-  // Protected: calendar events
-  @UseGuards(JwtAuthGuard)
+  // Protected: calendar events (scoped to the active site, like the rest of the app)
+  @UseGuards(JwtAuthGuard, SiteContextGuard)
   @Get('calendar')
-  getCalendarEvents(@Req() req: express.Request) {
+  getCalendarEvents(
+    @Req() req: express.Request,
+    @CurrentSite() siteId: string,
+  ) {
     const user = req.user as { id: string };
-    return this.analyticsService.getCalendarEvents(user.id);
+    return this.analyticsService.getCalendarEvents(user.id, siteId);
   }
 }

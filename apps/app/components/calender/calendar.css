@@ -716,6 +716,32 @@ button.rbc-input::-moz-focus-inner {
   cursor: pointer;
   opacity: 0.75;
 }
+/* AI planned — dashed accent, draggable to reschedule */
+.rbc-event.event-variant-ai-planned {
+  --event-bg: color-mix(
+    in oklab,
+    var(--chart-2, var(--primary)) 20%,
+    var(--background)
+  );
+  --event-color: var(--foreground);
+  --event-border: var(--chart-2, var(--primary));
+  border-style: dashed;
+  cursor: grab;
+}
+.rbc-event.event-variant-ai-planned:active {
+  cursor: grabbing;
+}
+/* AI generating — solid accent, in flight (not draggable) */
+.rbc-event.event-variant-ai-generating {
+  --event-bg: color-mix(
+    in oklab,
+    var(--chart-2, var(--primary)) 60%,
+    var(--background)
+  );
+  --event-color: var(--primary-foreground);
+  --event-border: var(--chart-2, var(--primary));
+  cursor: progress;
+}
 .event-component {
   background-color: var(--primary);
   color: var(--primary-foreground);

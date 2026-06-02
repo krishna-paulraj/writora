@@ -13,11 +13,29 @@ import { QueueService } from '../queue/queue.service';
 import { BlogService } from '../blog/blog.service';
 import { AiService, ArticleInput, ArticleLength, Tone } from './ai.service';
 import { GenerateArticleDto } from './dto/generate-article.dto';
+import {
+  NotificationsService,
+  NotificationType,
+} from '../notifications/notifications.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 const ARTICLE_GEN_QUEUE = 'article.generate';
 
 interface ArticleGenJob {
   jobId: string;
+}
+
+export interface PlanJobInput {
+  authorId: string;
+  siteId: string;
+  contentPlanId: string;
+  topic: string;
+  targetKeyword?: string | null;
+  relatedKeywords?: string[];
+  tone?: string;
+  length?: string;
+  audience?: string | null;
+  category?: string | null;
 }
 
 function slugify(text: string): string {
@@ -37,6 +55,8 @@ export class ArticleGenerationService implements OnModuleInit {
     private ai: AiService,
     private blog: BlogService,
     private queue: QueueService,
+    private notifications: NotificationsService,
+    private entitlements: EntitlementsService,
   ) {}
 
   async onModuleInit() {
@@ -47,7 +67,7 @@ export class ArticleGenerationService implements OnModuleInit {
     );
   }
 
-  async enqueue(authorId: string, dto: GenerateArticleDto) {
+  async enqueue(authorId: string, siteId: string, dto: GenerateArticleDto) {
     if (!dto?.topic || dto.topic.trim().length === 0) {
       throw new BadRequestException('topic is required');
     }
@@ -56,6 +76,9 @@ export class ArticleGenerationService implements OnModuleInit {
         'AI is not configured on this server',
       );
     }
+    // Reserve a monthly AI slot atomically (throws 403 over-limit) BEFORE
+    // creating the job, so failed retries can't farm extra generations.
+    await this.entitlements.assertCanGenerateAi(authorId);
 
     const related = (dto.relatedKeywords ?? [])
       .map((k) => k.trim())
@@ -64,6 +87,7 @@ export class ArticleGenerationService implements OnModuleInit {
     const job = await this.prisma.articleJob.create({
       data: {
         authorId,
+        siteId,
         status: 'pending',
         topic: dto.topic.trim(),
         targetKeyword: dto.targetKeyword?.trim() || null,
@@ -83,6 +107,45 @@ export class ArticleGenerationService implements OnModuleInit {
     });
 
     return { jobId: job.id, status: job.status };
+  }
+
+  /**
+   * Creates an autopilot ArticleJob row WITHOUT enqueuing it. The caller (the
+   * content-plan dispatcher) links the originating ContentPlanItem to the
+   * returned id before calling {@link dispatch}, so the queue consumer — which
+   * may run inline when RabbitMQ is disabled — always sees the linked item.
+   */
+  async createJobForPlan(input: PlanJobInput): Promise<string> {
+    const related = (input.relatedKeywords ?? [])
+      .map((k) => k.trim())
+      .filter(Boolean);
+
+    const job = await this.prisma.articleJob.create({
+      data: {
+        authorId: input.authorId,
+        siteId: input.siteId,
+        status: 'pending',
+        topic: input.topic.trim(),
+        targetKeyword: input.targetKeyword?.trim() || null,
+        keywordData: {
+          targetKeyword: input.targetKeyword?.trim() || null,
+          relatedKeywords: related,
+        },
+        tone: input.tone ?? 'professional',
+        length: input.length ?? 'medium',
+        audience: input.audience?.trim() || null,
+        category: input.category?.trim() || null,
+        source: 'autopilot',
+        contentPlanId: input.contentPlanId,
+      },
+    });
+
+    return job.id;
+  }
+
+  /** Enqueues an already-created job onto the generation queue. */
+  async dispatch(jobId: string): Promise<void> {
+    await this.queue.enqueue<ArticleGenJob>(ARTICLE_GEN_QUEUE, { jobId });
   }
 
   async getJob(authorId: string, jobId: string) {
@@ -130,9 +193,11 @@ export class ArticleGenerationService implements OnModuleInit {
   }
 
   /**
-   * Queue handler. Idempotent: a redelivered message for an already-finished
-   * job is a no-op. Deterministic failures are recorded on the job and NOT
-   * rethrown, so the queue doesn't pointlessly re-run them.
+   * Queue handler. Idempotent: a redelivered or duplicate message is a no-op
+   * once the job has left `pending` — the atomic pending→running claim below
+   * guarantees only one delivery generates, so a redelivery can never create a
+   * second (possibly auto-published) draft. Deterministic failures are recorded
+   * on the job and NOT rethrown, so the queue doesn't pointlessly re-run them.
    */
   private async run(jobId: string): Promise<void> {
     const job = await this.prisma.articleJob.findUnique({
@@ -141,10 +206,15 @@ export class ArticleGenerationService implements OnModuleInit {
     if (!job) return;
     if (job.status === 'done' || job.blogId) return; // already produced a draft
 
-    await this.prisma.articleJob.update({
-      where: { id: jobId },
+    // Atomically claim the job. Only the delivery that flips pending→running
+    // proceeds; concurrent/redelivered messages (status already running/done)
+    // see count 0 and bail, so generation never runs twice for one job.
+    const claim = await this.prisma.articleJob.updateMany({
+      where: { id: jobId, status: 'pending' },
       data: { status: 'running', progress: 0, startedAt: new Date() },
     });
+    if (claim.count !== 1) return;
+    if (job.contentPlanId) await this.syncPlanItem(jobId, 'generating');
 
     try {
       const kd = (job.keywordData ?? {}) as unknown as {
@@ -171,7 +241,9 @@ export class ArticleGenerationService implements OnModuleInit {
       const description =
         article.metaDescription.trim() || job.topic.slice(0, 160);
 
-      const draft = await this.blog.create(job.authorId, {
+      // The background worker reads siteId off the job (it can't derive an
+      // "active site" — there's no request), landing the draft on the right site.
+      const draft = await this.blog.create(job.authorId, job.siteId, {
         title,
         slug,
         description,
@@ -191,6 +263,19 @@ export class ArticleGenerationService implements OnModuleInit {
           finishedAt: new Date(),
         },
       });
+
+      if (job.contentPlanId) {
+        await this.syncPlanItem(jobId, 'done');
+        await this.maybeAutoPublish(job.contentPlanId, job.authorId, draft.id);
+      }
+
+      await this.notifications.emit(job.authorId, {
+        type: NotificationType.ArticleCompleted,
+        title: `Article ready: ${title}`,
+        body: 'Your draft has been generated and is ready to review.',
+        link: job.contentPlanId ? `/autopilot/${job.contentPlanId}` : '/blogs',
+        meta: { blogId: draft.id, jobId, planId: job.contentPlanId },
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`article job ${jobId} failed: ${message}`);
@@ -198,7 +283,58 @@ export class ArticleGenerationService implements OnModuleInit {
         where: { id: jobId },
         data: { status: 'failed', error: message, finishedAt: new Date() },
       });
+      if (job.contentPlanId) await this.syncPlanItem(jobId, 'failed');
+
+      await this.notifications.emit(job.authorId, {
+        type: NotificationType.ArticleFailed,
+        title: 'Article generation failed',
+        body: `“${job.topic}” couldn’t be generated: ${message}`,
+        link: job.contentPlanId ? `/autopilot/${job.contentPlanId}` : '/blogs',
+        meta: { jobId, planId: job.contentPlanId },
+      });
       // Intentionally not rethrown — see method docstring.
+    }
+  }
+
+  /**
+   * Mirrors a finished/running job's state onto its originating
+   * ContentPlanItem (linked by articleJobId). Best-effort — the plan UI can
+   * also derive state from the job directly, so a race here is harmless.
+   */
+  private async syncPlanItem(jobId: string, status: string): Promise<void> {
+    try {
+      await this.prisma.contentPlanItem.updateMany({
+        where: { articleJobId: jobId },
+        data: { status },
+      });
+    } catch {
+      // best-effort
+    }
+  }
+
+  /**
+   * If the owning plan has autoPublish on, publish the freshly-drafted post
+   * through BlogService.update so it follows the normal publish path
+   * (sets publishedAt, fires the newsletter + webhook fanout exactly once).
+   */
+  private async maybeAutoPublish(
+    contentPlanId: string,
+    authorId: string,
+    blogId: string,
+  ): Promise<void> {
+    try {
+      const plan = await this.prisma.contentPlan.findUnique({
+        where: { id: contentPlanId },
+        select: { autoPublish: true },
+      });
+      if (!plan?.autoPublish) return;
+      await this.blog.update(blogId, authorId, { published: true });
+    } catch (err) {
+      this.logger.warn(
+        `autopilot auto-publish for blog ${blogId} failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
   }
 

@@ -8,59 +8,74 @@ import type { Event } from "react-big-calendar";
 import { toast } from "sonner";
 import { SiteHeader } from "@/components/site-header";
 import ShadcnBigCalendar from "@/components/calender/calendar";
+import { QuickAddDialog } from "@/components/quick-add-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
+import {
+  getPlannerEvents,
+  quickAddArticle,
+  reschedulePlanItem,
+  type PlannerEvent,
+  type PlannerVariant,
+} from "@/lib/content-plans";
 
 const localizer = momentLocalizer(moment);
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-type Variant = "scheduled" | "published" | "draft";
-
-interface BlogEvent extends Event {
+interface CalEvent extends Event {
   id: string;
-  variant: Variant;
-  published: boolean;
-  scheduledAt: string | null;
+  variant: PlannerVariant;
+  raw: PlannerEvent;
 }
 
-interface ApiEvent {
-  id: string;
-  title: string;
-  slug: string;
-  start: string;
-  end: string;
-  variant: Variant;
-  published: boolean;
-  scheduledAt: string | null;
-}
+type Filter = "all" | PlannerVariant;
 
-type Filter = "all" | Variant;
+function toCalEvent(e: PlannerEvent): CalEvent {
+  return {
+    id: e.id,
+    title: e.title,
+    start: new Date(e.start),
+    end: new Date(e.end),
+    allDay: true,
+    variant: e.variant,
+    raw: e,
+  };
+}
 
 export default function CalendarPage() {
   const router = useRouter();
-  const [events, setEvents] = useState<BlogEvent[]>([]);
+  const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("all");
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddDay, setQuickAddDay] = useState<Date | null>(null);
 
+  // Refetch helper (used after quick-add). Runs from an event handler.
+  const load = useCallback(async () => {
+    try {
+      const data = await getPlannerEvents();
+      setEvents(data.map(toCalEvent));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load planner");
+    }
+  }, []);
+
+  // Initial load — setState lives in the promise callbacks, not the effect body.
   useEffect(() => {
-    fetch(`${API_URL}/analytics/calendar`, { credentials: "include" })
-      .then((res) => res.json())
-      .then((data: ApiEvent[]) => {
-        setEvents(
-          data.map((e) => ({
-            id: e.id,
-            title: e.title,
-            start: new Date(e.start),
-            end: new Date(e.end),
-            allDay: true,
-            variant: e.variant,
-            published: e.published,
-            scheduledAt: e.scheduledAt,
-          })),
-        );
+    let active = true;
+    getPlannerEvents()
+      .then((data) => {
+        if (active) setEvents(data.map(toCalEvent));
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch((e) =>
+        toast.error(e instanceof Error ? e.message : "Failed to load planner"),
+      )
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const filtered = useMemo(
@@ -71,73 +86,108 @@ export default function CalendarPage() {
 
   const handleSelectEvent = useCallback(
     (event: object) => {
-      const e = event as BlogEvent;
-      router.push(`/blogs/${e.id}/edit`);
+      const e = event as CalEvent;
+      if (e.raw.kind === "blog") router.push(`/blogs/${e.raw.id}/edit`);
+      else router.push(`/autopilot/${e.raw.planId}`);
     },
     [router],
   );
 
-  const eventPropGetter = useCallback((event: object) => {
-    const e = event as BlogEvent;
-    return { className: `event-variant-${e.variant}` };
-  }, []);
-
-  // Only scheduled posts can be dragged — drafts have no anchor date and
-  // published posts shouldn't be retroactively rescheduled.
-  const draggableAccessor = useCallback(
-    (event: object) => (event as BlogEvent).variant === "scheduled",
+  const eventPropGetter = useCallback(
+    (event: object) => ({
+      className: `event-variant-${(event as CalEvent).variant}`,
+    }),
     [],
   );
 
+  // Scheduled blog posts and not-yet-generated AI articles can be dragged.
+  // Published/draft blogs and in-flight AI items have no movable anchor.
+  const draggableAccessor = useCallback((event: object) => {
+    const e = event as CalEvent;
+    return e.variant === "scheduled" || e.variant === "ai-planned";
+  }, []);
+
   const handleEventDrop = useCallback(
     async ({ event, start }: { event: object; start: Date | string }) => {
-      const e = event as BlogEvent;
-      if (e.variant !== "scheduled") return;
+      const e = event as CalEvent;
+      const raw = e.raw;
       const newStart = typeof start === "string" ? new Date(start) : start;
 
-      // Preserve original time-of-day when dropping on a new day (month view
-      // zeros the time component).
-      const original = e.scheduledAt
-        ? new Date(e.scheduledAt)
-        : new Date(e.start as Date);
+      // Preserve the original time-of-day (month view zeros it on drop).
+      const originalIso =
+        raw.kind === "blog" ? (raw.scheduledAt ?? raw.start) : raw.start;
+      const original = new Date(originalIso);
       newStart.setHours(original.getHours(), original.getMinutes(), 0, 0);
 
       if (newStart.getTime() < Date.now() - 30_000) {
         toast.error("Can't schedule in the past");
         return;
       }
+      const iso = newStart.toISOString();
 
+      // Optimistic move; restore on failure.
       const prev = events;
-      const isoString = newStart.toISOString();
       setEvents((cur) =>
         cur.map((ev) =>
-          ev.id === e.id
-            ? { ...ev, start: newStart, end: newStart, scheduledAt: isoString }
-            : ev,
+          ev.id === e.id ? patchEventDate(ev, newStart, iso) : ev,
         ),
       );
 
       try {
-        const res = await fetch(`${API_URL}/blogs/${e.id}/schedule`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ scheduledAt: isoString }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (raw.kind === "blog" && raw.variant === "scheduled") {
+          const res = await apiFetch(`/blogs/${raw.id}/schedule`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scheduledAt: iso }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        } else if (raw.kind === "plan" && raw.variant === "ai-planned") {
+          await reschedulePlanItem(raw.planId, raw.id, iso);
+        } else {
+          setEvents(prev); // not a movable event — undo the optimistic flip
+          return;
+        }
         toast.success(
           `Rescheduled to ${moment(newStart).format("MMM D, h:mm A")}`,
         );
-      } catch {
+      } catch (err) {
         setEvents(prev);
-        toast.error("Failed to reschedule");
+        toast.error(
+          err instanceof Error ? err.message : "Failed to reschedule",
+        );
       }
     },
     [events],
   );
 
+  const handleSelectSlot = useCallback(
+    ({ start }: { start: Date | string }) => {
+      setQuickAddDay(typeof start === "string" ? new Date(start) : start);
+      setQuickAddOpen(true);
+    },
+    [],
+  );
+
+  const handleQuickAdd = useCallback(
+    async (title: string, iso: string) => {
+      try {
+        await quickAddArticle({ title, scheduledFor: iso });
+        toast.success("Article added to the planner");
+        await load();
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to add article",
+        );
+      }
+    },
+    [load],
+  );
+
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: "All" },
+    { id: "ai-planned", label: "AI planned" },
+    { id: "ai-generating", label: "AI generating" },
     { id: "scheduled", label: "Scheduled" },
     { id: "published", label: "Published" },
     { id: "draft", label: "Drafts" },
@@ -160,12 +210,13 @@ export default function CalendarPage() {
       <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Blog Calendar</h2>
+            <h2 className="text-lg font-semibold">Content Planner</h2>
             <p className="text-muted-foreground text-sm">
-              Drag a scheduled post to reschedule. Click any post to edit it.
+              Click a day to plan an AI article. Drag planned articles or
+              scheduled posts to reschedule. Click any item to open it.
             </p>
           </div>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {filters.map((f) => (
               <Button
                 key={f.id}
@@ -184,9 +235,11 @@ export default function CalendarPage() {
           <ShadcnBigCalendar
             localizer={localizer}
             events={filtered}
-            startAccessor={(e: object) => (e as BlogEvent).start as Date}
-            endAccessor={(e: object) => (e as BlogEvent).end as Date}
+            startAccessor={(e: object) => (e as CalEvent).start as Date}
+            endAccessor={(e: object) => (e as CalEvent).end as Date}
             onSelectEvent={handleSelectEvent}
+            onSelectSlot={handleSelectSlot}
+            selectable
             eventPropGetter={eventPropGetter}
             draggableAccessor={draggableAccessor}
             onEventDrop={handleEventDrop}
@@ -198,6 +251,23 @@ export default function CalendarPage() {
           />
         </div>
       </div>
+
+      <QuickAddDialog
+        open={quickAddOpen}
+        onOpenChange={setQuickAddOpen}
+        seedDate={quickAddDay}
+        onConfirm={handleQuickAdd}
+      />
     </>
   );
+}
+
+// Returns a copy of the event moved to `when`, updating the raw payload's date
+// fields so the optimistic state matches what the server now holds.
+function patchEventDate(ev: CalEvent, when: Date, iso: string): CalEvent {
+  const raw: PlannerEvent =
+    ev.raw.kind === "blog"
+      ? { ...ev.raw, start: iso, end: iso, scheduledAt: iso }
+      : { ...ev.raw, start: iso, end: iso };
+  return { ...ev, start: when, end: when, raw };
 }

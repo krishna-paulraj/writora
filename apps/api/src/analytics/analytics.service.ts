@@ -205,9 +205,9 @@ export class AnalyticsService {
   //   scheduledAt (if set)  → "scheduled" — drag-to-reschedule lives here
   //   publishedAt (if set)  → "published" — historical record
   //   createdAt (fallback)  → "draft"
-  async getCalendarEvents(userId: string) {
+  async getCalendarEvents(userId: string, siteId: string) {
     const blogs = await this.prisma.blog.findMany({
-      where: { authorId: userId },
+      where: { authorId: userId, siteId },
       select: {
         id: true,
         title: true,

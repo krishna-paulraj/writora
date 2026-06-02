@@ -15,6 +15,8 @@ import { AiService, EditAction, Tone } from './ai.service';
 import { ArticleGenerationService } from './article-generation.service';
 import { GenerateArticleDto } from './dto/generate-article.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SiteContextGuard } from '../site/site-context.guard';
+import { CurrentSite } from '../site/current-site.decorator';
 
 interface EditBody {
   action: EditAction;
@@ -28,7 +30,7 @@ interface ContentBody {
 
 const HOUR = 60 * 60_000;
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SiteContextGuard)
 @Controller('ai')
 export class AiController {
   constructor(
@@ -87,9 +89,13 @@ export class AiController {
   // hard. Returns a job id; the client polls the GET endpoints below.
   @Throttle({ default: { limit: 10, ttl: HOUR } })
   @Post('article')
-  generateArticle(@Req() req: Request, @Body() dto: GenerateArticleDto) {
+  generateArticle(
+    @Req() req: Request,
+    @CurrentSite() siteId: string,
+    @Body() dto: GenerateArticleDto,
+  ) {
     const user = req.user as { id: string };
-    return this.articleGen.enqueue(user.id, dto);
+    return this.articleGen.enqueue(user.id, siteId, dto);
   }
 
   @Throttle({ default: { limit: 120, ttl: HOUR } })
