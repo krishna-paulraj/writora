@@ -33,6 +33,19 @@ export interface ArticleInput {
   audience?: string;
 }
 
+export interface PlanIdea {
+  title: string;
+  targetKeyword?: string;
+}
+
+export interface PlanIdeasInput {
+  topic: string;
+  audience?: string;
+  tone?: Tone;
+  count: number;
+  seedKeywords?: string[];
+}
+
 export interface OutlineSection {
   heading: string;
   subheadings: string[];
@@ -53,6 +66,7 @@ const MAX_INPUT_CHARS = 12_000; // ~3k tokens
 const MAX_OUTPUT_TOKENS = 1024;
 const OUTLINE_MAX_TOKENS = 900;
 const SECTION_MAX_TOKENS = 1000;
+const PLAN_IDEAS_MAX_TOKENS = 1200;
 // Per-call ceiling so a stalled OpenAI request fails the job instead of
 // blocking the queue consumer (prefetch=1) indefinitely.
 const PER_CALL_TIMEOUT_MS = 90_000;
@@ -116,6 +130,20 @@ function describeRelatedKeywords(input: ArticleInput): string {
 function buildOutlinePrompt(input: ArticleInput): string {
   const spec = LENGTH_SPEC[input.length ?? 'medium'];
   return `Create an SEO article outline for the topic: "${input.topic}".${describeKeyword(input)}${describeRelatedKeywords(input)}${describeAudience(input)} Use a ${input.tone ?? 'professional'} tone. Produce ${spec.sectionCount} top-level sections (H2), each with up to 3 subheadings (H3). Cover the topic comprehensively without overlapping sections, and order them logically. Return JSON of the form {"sections":[{"heading":"...","subheadings":["...","..."]}]}.`;
+}
+
+function buildPlanIdeasPrompt(input: PlanIdeasInput): string {
+  const audience = input.audience
+    ? ` The target audience is: ${input.audience}.`
+    : '';
+  const seeds = (input.seedKeywords ?? [])
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .slice(0, 15);
+  const seedLine = seeds.length
+    ? ` Prioritise ideas that target or naturally relate to these seed keywords where sensible: ${seeds.join(', ')}.`
+    : '';
+  return `You are building an SEO topic cluster. The pillar topic/theme is: "${input.topic}".${audience}${seedLine} Propose exactly ${input.count} distinct article ideas that together cover this theme comprehensively for search — no two ideas should overlap or target the same primary keyword. For each idea, give a specific, compelling SEO title under 70 characters and a concise primary target keyword (a lowercase search phrase). Use a ${input.tone ?? 'professional'} angle. Order them from foundational to advanced. Return JSON of the form {"ideas":[{"title":"...","targetKeyword":"..."}]}.`;
 }
 
 function buildSectionPrompt(
@@ -283,9 +311,106 @@ export class AiService {
     return (res.choices[0]?.message?.content || '').trim();
   }
 
+  /**
+   * Writes a punchy, single-tweet hook for a freshly published post — used by
+   * the X (Twitter) auto-post adapter. Returns ONLY the hook text (no link);
+   * the adapter appends the canonical URL and enforces the 280-char budget.
+   * Throws when AI is unconfigured so the caller can fall back to a plain
+   * title-and-link announcement.
+   */
+  async composeTweet(input: {
+    title: string;
+    description?: string;
+    maxChars: number;
+  }): Promise<string> {
+    const client = this.ensureClient();
+    const title = input.title.trim();
+    const context = input.description?.trim()
+      ? `Title: ${title}\nSummary: ${input.description.trim()}`
+      : `Title: ${title}`;
+
+    const res = await client.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You write punchy tweets that make people want to click through to a blog post. Return ONLY the tweet text — no preamble, no surrounding quotes — and do NOT include any link or URL (it is appended separately). At most one tasteful hashtag, and only if it reads naturally.',
+        },
+        {
+          role: 'user',
+          content: `Write a single tweet (strictly under ${input.maxChars} characters) promoting this post. Hook the reader; don't just restate the title.\n\n${this.truncate(context)}`,
+        },
+      ],
+      max_tokens: 160,
+      temperature: 0.8,
+    });
+
+    return (res.choices[0]?.message?.content || '').trim();
+  }
+
   /** Whether an OpenAI key is configured — lets callers skip doomed work. */
   isConfigured(): boolean {
     return this.client !== null;
+  }
+
+  /**
+   * Brainstorms a content-plan's worth of article ideas (title + target
+   * keyword) from a pillar topic. One JSON-mode call; used when creating an
+   * autopilot ContentPlan.
+   */
+  async generatePlanIdeas(input: PlanIdeasInput): Promise<PlanIdea[]> {
+    if (!input?.topic || input.topic.trim().length === 0) {
+      throw new BadRequestException('topic is required');
+    }
+    const client = this.ensureClient();
+    const count = Math.min(Math.max(input.count ?? 10, 1), 30);
+    const res = await client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an SEO content strategist. Respond ONLY with a JSON object of the form {"ideas":[{"title":"...","targetKeyword":"..."}]}. No prose, no markdown.',
+          },
+          { role: 'user', content: buildPlanIdeasPrompt({ ...input, count }) },
+        ],
+        max_tokens: PLAN_IDEAS_MAX_TOKENS,
+        temperature: 0.8,
+        response_format: { type: 'json_object' },
+      },
+      { timeout: PER_CALL_TIMEOUT_MS },
+    );
+
+    const raw = res.choices[0]?.message?.content || '{}';
+    try {
+      const parsed = JSON.parse(raw) as { ideas?: unknown };
+      if (!Array.isArray(parsed.ideas)) throw new Error('missing ideas array');
+      const ideas: PlanIdea[] = parsed.ideas
+        .filter(
+          (i): i is Record<string, unknown> =>
+            typeof i === 'object' && i !== null && 'title' in i,
+        )
+        .map((i) => ({
+          title: typeof i.title === 'string' ? i.title.trim() : '',
+          targetKeyword:
+            typeof i.targetKeyword === 'string' && i.targetKeyword.trim()
+              ? i.targetKeyword.trim()
+              : undefined,
+        }))
+        .filter((i) => i.title.length > 0)
+        .slice(0, count);
+      if (ideas.length === 0) throw new Error('no valid ideas');
+      return ideas;
+    } catch (err) {
+      this.logger.warn(
+        `failed to parse plan ideas JSON: ${raw.slice(0, 200)} (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+      throw new BadRequestException('Failed to generate content plan ideas');
+    }
   }
 
   async generateOutline(input: ArticleInput): Promise<ArticleOutline> {
