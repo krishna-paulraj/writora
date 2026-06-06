@@ -1,0 +1,113 @@
+# Render Blueprint for the Writora API (apps/api).
+#
+# This is a pnpm + turbo monorepo, so the build runs from the repo root and
+# filters to the `api` package only (keeps the free-tier build small — it does
+# NOT install the two Next.js apps).
+#
+# Free-tier notes:
+#   - The web service sleeps after ~15 min idle, so the in-process @Cron jobs
+#     (publish scheduled posts, autopilot plans) don't fire while asleep. Create
+#     a cron-job.org job that POSTs to https://<service>.onrender.com/internal/cron/tick
+#     every ~2-5 min with header `X-Cron-Secret: <CRON_SECRET>` (or
+#     `Authorization: Bearer <CRON_SECRET>`). The request also wakes the service.
+#   - Uploads MUST go to S3/R2 — the free filesystem is wiped on deploy/restart.
+#     Set the S3_* vars (Cloudflare R2 works well and has a free tier).
+#   - Postgres (Neon, with pgvector), Redis (Upstash) and RabbitMQ (CloudAMQP)
+#     are external; set their URLs below. Redis + RabbitMQ are optional (the app
+#     degrades to no-op cache / inline jobs if unset).
+#
+# After the first deploy, set the `sync: false` vars in the Render dashboard.
+# Migrations run automatically at build time via `prisma migrate deploy`.
+
+services:
+  - type: web
+    name: writora-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    rootDir: .
+    autoDeploy: true
+    # corepack activates the pinned pnpm (packageManager in package.json).
+    # --prod=false forces devDependencies (nest CLI, prisma) to install even
+    # though NODE_ENV=production. --filter api scopes install+build to the API.
+    buildCommand: >-
+      corepack enable &&
+      pnpm install --frozen-lockfile --prod=false --filter api &&
+      pnpm --filter api build &&
+      pnpm --filter api exec prisma migrate deploy
+    startCommand: pnpm --filter api start:prod
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Generated once by Render. Copy it into your cron-job.org job's
+      # `X-Cron-Secret` header so /internal/cron/tick is authorized.
+      - key: CRON_SECRET
+        generateValue: true
+
+      # --- External datastores ---
+      - key: DATABASE_URL # Neon — include ?sslmode=require
+        sync: false
+      - key: REDIS_URL # Upstash — rediss://... (optional)
+        sync: false
+      - key: RABBITMQ_URL # CloudAMQP — amqps://... (optional)
+        sync: false
+
+      # --- Auth / URLs ---
+      - key: JWT_SECRET # MUST match apps/app and apps/www
+        sync: false
+      - key: COOKIE_DOMAIN
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_API_URL # this service's public URL
+        sync: false
+      - key: SITE_URL
+        sync: false
+
+      # --- Object storage (Cloudflare R2 / S3) ---
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_PUBLIC_URL
+        sync: false
+
+      # --- Email (Resend) ---
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # --- AI (optional) ---
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: RECRAFT_API_KEY
+        sync: false
+
+      # --- Google OAuth (optional) ---
+      - key: GOOGLE_AUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_AUTH_SECRET_ID
+        sync: false
+      - key: GOOGLE_REDIRECT_URL
+        sync: false
+
+      # --- Keyword research (optional) ---
+      - key: DATAFORSEO_LOGIN
+        sync: false
+      - key: DATAFORSEO_PASSWORD
+        sync: false

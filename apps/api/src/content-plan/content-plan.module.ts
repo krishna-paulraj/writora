@@ -9,5 +9,6 @@ import { ContentPlanSchedulerService } from './content-plan-scheduler.service';
   imports: [AuthModule, AiModule],
   controllers: [ContentPlanController],
   providers: [ContentPlanService, ContentPlanSchedulerService],
+  exports: [ContentPlanSchedulerService],
 })
 export class ContentPlanModule {}
