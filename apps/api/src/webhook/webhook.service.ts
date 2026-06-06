@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { BlogService } from '../blog/blog.service';
 import { QueueService } from '../queue/queue.service';
+import { assertPublicUrl, assertSafeUrlSyntax } from '../common/ssrf-guard';
 
 export const WEBHOOK_BLOG_PUBLISHED_QUEUE = 'webhook.blog.published';
 
@@ -183,9 +184,12 @@ export class WebhookService {
     userId: string,
     data: { url: string; description?: string },
   ) {
-    if (!data?.url || !/^https?:\/\//.test(data.url)) {
+    if (!data?.url) {
       throw new BadRequestException('A valid http(s) URL is required');
     }
+    // Reject loopback/private/link-local targets at registration time (SSRF).
+    // DNS-based hosts are re-checked at delivery time in deliverOnce().
+    assertSafeUrlSyntax(data.url);
     const endpoint = await this.prisma.webhookEndpoint.create({
       data: {
         userId,
@@ -309,6 +313,10 @@ export class WebhookService {
     const timeout = setTimeout(() => controller.abort(), 10_000);
 
     try {
+      // SSRF egress guard: re-resolve the host and reject private/reserved
+      // targets right before the request, and never follow redirects (a public
+      // host could otherwise 30x-bounce into internal space).
+      await assertPublicUrl(url);
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -317,6 +325,7 @@ export class WebhookService {
           'User-Agent': 'Writora-Webhook/1.0',
         },
         body: raw,
+        redirect: 'manual',
         signal: controller.signal,
       });
       const ok = res.status >= 200 && res.status < 300;

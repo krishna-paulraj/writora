@@ -15,5 +15,8 @@ CREATE INDEX "BlogView_blogId_idx" ON "BlogView"("blogId");
 CREATE INDEX "BlogView_createdAt_idx" ON "BlogView"("createdAt");
 CREATE INDEX "BlogView_blogId_createdAt_idx" ON "BlogView"("blogId", "createdAt");
 
--- Add foreign key
-ALTER TABLE "BlogView" ADD CONSTRAINT "BlogView_blogId_fkey" FOREIGN KEY ("blogId") REFERENCES "Blog"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- NOTE: The "BlogView" -> "Blog" foreign key was moved to a later migration
+-- (20260607_add_blogview_blog_fk) because the "Blog" table is created in
+-- 20260318_add_blog_model, which sorts AFTER this migration. Adding the FK here
+-- made the history non-replayable on a fresh database ("relation Blog does not
+-- exist"). The FK is added idempotently once Blog exists.

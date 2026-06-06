@@ -4,7 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { requestJson } from './http';
-import { assertPublicUrl, assertSafeUrlSyntax } from './ssrf-guard';
+import { assertPublicUrl, assertSafeUrlSyntax } from '../../common/ssrf-guard';
 import { PublishAdapter, PublishBlogInput, PublishResult } from './types';
 
 interface WpCreds {

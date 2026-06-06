@@ -16,6 +16,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { GoogleAuthGuard } from './google-auth.guard';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -62,20 +63,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Patch('me')
-  async updateMe(
-    @Req() req: express.Request,
-    @Body()
-    data: {
-      name?: string;
-      username?: string;
-      blogTheme?: string;
-      customDomain?: string | null;
-      bio?: string;
-      avatarUrl?: string;
-      twitterHandle?: string;
-      websiteUrl?: string;
-    },
-  ) {
+  async updateMe(@Req() req: express.Request, @Body() data: UpdateProfileDto) {
     const user = req.user as { id: string };
     return this.authService.updateProfile(user.id, data);
   }

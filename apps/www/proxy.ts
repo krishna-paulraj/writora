@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "writora_jwt_secret_change_in_production_k9x2m4p7",
-);
+// No fallback secret — verify only when a real JWT_SECRET is configured (see
+// apps/app/proxy.ts). A committed constant would let tokens be forged.
+const JWT_SECRET = process.env.JWT_SECRET
+  ? new TextEncoder().encode(process.env.JWT_SECRET)
+  : null;
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
 const WWW_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
@@ -41,7 +43,7 @@ async function resolveCustomDomain(host: string): Promise<DomainSite | null> {
 
 async function handleAuthGate(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
-  if (!token) return NextResponse.next();
+  if (!token || !JWT_SECRET) return NextResponse.next();
   try {
     await jwtVerify(token, JWT_SECRET);
     return NextResponse.redirect(APP_URL);

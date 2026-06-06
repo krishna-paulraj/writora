@@ -16,13 +16,15 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { StorageService } from '../storage/storage.service';
 
+// SVG is intentionally NOT allowed: it can carry <script>/onload and would be
+// served from our origin as image/svg+xml, i.e. a stored-XSS vector. Raster
+// formats only (they're re-encoded to WebP below, stripping any active content).
 const ALLOWED_MIME = new Set([
   'image/jpeg',
   'image/png',
   'image/gif',
   'image/webp',
   'image/avif',
-  'image/svg+xml',
 ]);
 const MAX_BYTES = 12 * 1024 * 1024; // 12MB raw input; output is much smaller after sharp
 const MAX_WIDTH = 2000;
@@ -60,11 +62,7 @@ export class UploadController {
     let body: Buffer;
     let contentType: string;
 
-    if (file.mimetype === 'image/svg+xml') {
-      key = `images/${id}.svg`;
-      body = file.buffer;
-      contentType = 'image/svg+xml';
-    } else if (file.mimetype === 'image/gif') {
+    if (file.mimetype === 'image/gif') {
       // Preserve animation
       key = `images/${id}.gif`;
       body = file.buffer;

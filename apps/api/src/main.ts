@@ -1,3 +1,4 @@
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
@@ -39,6 +40,15 @@ async function bootstrap() {
     origin: corsOrigins,
     credentials: true,
   });
+
+  // Global input validation. `whitelist` strips any property not declared (with
+  // a validation decorator) on the DTO — the primary defense against
+  // mass-assignment: undeclared columns like plan/subscriptionStatus/authorId
+  // are silently dropped and never reach Prisma. We intentionally do NOT set
+  // `forbidNonWhitelisted` (which 400s on extra fields) to stay backward-
+  // compatible with existing clients. `transform` instantiates DTO classes
+  // (needed for @Type/@ValidateNested).
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   // Serve uploaded files at /uploads/*. Multer writes to ./uploads relative to cwd.
   const uploadsDir = join(process.cwd(), 'uploads');

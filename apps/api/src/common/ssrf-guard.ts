@@ -2,11 +2,13 @@ import { BadRequestException } from '@nestjs/common';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
-// SSRF egress guard for adapters that fetch a USER-CONTROLLED URL (the
-// WordPress site URL). Blocks loopback/private/link-local/reserved targets so a
-// tenant can't make the API server probe internal services (e.g. the cloud
-// metadata endpoint 169.254.169.254). DNS-resolution check at request time
-// also defeats hostnames that resolve to private space (basic rebinding guard).
+// SSRF egress guard for any code path that fetches a USER- or EXTERNALLY-
+// CONTROLLED URL (WordPress site URL, outbound webhook endpoints, image URLs
+// returned by third parties). Blocks loopback/private/link-local/reserved
+// targets so a tenant can't make the API server probe internal services (e.g.
+// the cloud metadata endpoint 169.254.169.254). The DNS-resolution check at
+// request time also defeats hostnames that resolve to private space (basic
+// rebinding guard).
 
 function isBlockedIp(input: string): boolean {
   // Unwrap IPv4-mapped IPv6 (::ffff:127.0.0.1) to its v4 form.

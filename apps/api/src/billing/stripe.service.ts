@@ -251,6 +251,20 @@ export class StripeService {
 
   /** Applies a verified subscription-lifecycle event to the owning user. */
   async handleEvent(event: StripeEvent): Promise<void> {
+    // Idempotency: record the event id before processing. A duplicate (Stripe
+    // auto-retry, or a replayed signed body within the tolerance window) hits
+    // the primary-key conflict and is skipped, so each lifecycle event is
+    // applied at most once.
+    if (event.id) {
+      try {
+        await this.prisma.processedStripeEvent.create({
+          data: { id: event.id, type: event.type },
+        });
+      } catch {
+        return; // already processed
+      }
+    }
+
     const obj = event.data?.object ?? {};
     switch (event.type) {
       // NB: checkout.session.completed is intentionally NOT mapped here — the
@@ -356,6 +370,11 @@ export class StripeService {
   private async applyCancellation(obj: Record<string, unknown>): Promise<void> {
     const userId = await this.userIdFromObject(obj);
     if (!userId) return;
+    // Ordering guard: ignore a cancellation that doesn't pertain to the user's
+    // CURRENT subscription. A late/out-of-order `deleted` event for a replaced
+    // subscription must not downgrade an already-active newer one.
+    const subId = typeof obj.id === 'string' ? obj.id : undefined;
+    if (subId && !(await this.isCurrentSubscription(userId, subId))) return;
     await this.prisma.user.update({
       where: { id: userId },
       data: { plan: 'free', subscriptionStatus: 'canceled' },
@@ -366,10 +385,29 @@ export class StripeService {
   private async applyPastDue(obj: Record<string, unknown>): Promise<void> {
     const userId = await this.userIdFromObject(obj);
     if (!userId) return;
+    // The object here is an invoice; its subscription id lives on .subscription.
+    const subId =
+      typeof obj.subscription === 'string' ? obj.subscription : undefined;
+    if (subId && !(await this.isCurrentSubscription(userId, subId))) return;
     await this.prisma.user.update({
       where: { id: userId },
       data: { subscriptionStatus: 'past_due' },
     });
     await this.cache.del(profileKey(userId));
+  }
+
+  /**
+   * True when `subId` is the user's recorded current subscription (or none is
+   * recorded yet). Guards lifecycle handlers against stale events for old subs.
+   */
+  private async isCurrentSubscription(
+    userId: string,
+    subId: string,
+  ): Promise<boolean> {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { stripeSubscriptionId: true },
+    });
+    return !u?.stripeSubscriptionId || u.stripeSubscriptionId === subId;
   }
 }

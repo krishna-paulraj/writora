@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "writora_jwt_secret_change_in_production_k9x2m4p7",
-);
+// No fallback secret: if JWT_SECRET is unset we fail CLOSED (treat every
+// request as unauthenticated) rather than verifying tokens against a committed
+// constant, which would let anyone forge a valid session for the dashboard.
+const JWT_SECRET = process.env.JWT_SECRET
+  ? new TextEncoder().encode(process.env.JWT_SECRET)
+  : null;
 
 const LOGIN_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
 
 export async function proxy(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
 
-  if (!token) {
+  if (!token || !JWT_SECRET) {
     return NextResponse.redirect(`${LOGIN_URL}/login`);
   }
 

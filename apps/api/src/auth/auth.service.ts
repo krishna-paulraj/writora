@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
@@ -58,6 +58,19 @@ function genToken(): string {
   return randomBytes(32).toString('hex');
 }
 
+// Reset/verification tokens are stored hashed so a read-only DB leak (backup,
+// snapshot, log) can't be replayed — only the raw token from the emailed link
+// works. The token has 256 bits of entropy so a plain SHA-256 (no salt needed)
+// is sufficient and keeps the lookup a single indexed equality.
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+// A precomputed valid bcrypt hash compared against when the account doesn't
+// exist or has no password, so login takes ~the same time and shape regardless
+// of whether the email is registered (defeats a user-enumeration timing oracle).
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('writora-timing-guard', 10);
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -104,13 +117,14 @@ export class AuthService {
 
   async validateUser(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) throw new UnauthorizedException('Invalid credentials');
-    if (!user.password) {
-      throw new UnauthorizedException('Please sign in with Google');
-    }
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid)
+    // Always run one bcrypt comparison (against a dummy hash when the account is
+    // missing or Google-only) and return a single generic message, so neither
+    // timing nor the error text discloses whether the email is registered.
+    const hash = user?.password ?? DUMMY_PASSWORD_HASH;
+    const passwordMatches = await bcrypt.compare(password, hash);
+    if (!user || !user.password || !passwordMatches) {
       throw new UnauthorizedException('Invalid credentials');
+    }
     return this.buildResponse(user);
   }
 
@@ -273,8 +287,13 @@ export class AuthService {
     return this.buildResponse(user);
   }
 
-  generateToken(user: { id: string; email: string }) {
-    return this.jwtService.sign({ sub: user.id, email: user.email });
+  generateToken(user: { id: string; email: string; tokenVersion?: number }) {
+    // `tv` lets the JWT strategy reject tokens issued before a password reset.
+    return this.jwtService.sign({
+      sub: user.id,
+      email: user.email,
+      tv: user.tokenVersion ?? 0,
+    });
   }
 
   // --- Email verification ----------------------------------------------------
@@ -291,7 +310,7 @@ export class AuthService {
     await this.prisma.emailVerification.create({
       data: {
         userId,
-        token,
+        token: hashToken(token),
         expiresAt: new Date(Date.now() + VERIFY_TOKEN_TTL_MS),
       },
     });
@@ -311,7 +330,7 @@ export class AuthService {
 
   async verifyEmail(token: string): Promise<{ ok: true }> {
     const record = await this.prisma.emailVerification.findUnique({
-      where: { token },
+      where: { token: hashToken(token) },
     });
     if (!record) throw new BadRequestException('Invalid verification link');
     if (record.expiresAt < new Date()) {
@@ -344,7 +363,7 @@ export class AuthService {
     await this.prisma.passwordReset.create({
       data: {
         userId: user.id,
-        token,
+        token: hashToken(token),
         expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
       },
     });
@@ -358,7 +377,7 @@ export class AuthService {
       throw new BadRequestException('Password must be at least 8 characters');
     }
     const record = await this.prisma.passwordReset.findUnique({
-      where: { token },
+      where: { token: hashToken(token) },
     });
     if (!record || record.usedAt) {
       throw new BadRequestException('Invalid or already-used reset link');
@@ -370,13 +389,15 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
-        data: { password: hashed },
+        // Bump tokenVersion so every JWT issued before this reset is rejected.
+        data: { password: hashed, tokenVersion: { increment: 1 } },
       }),
       this.prisma.passwordReset.update({
         where: { id: record.id },
         data: { usedAt: new Date() },
       }),
     ]);
+    await this.cache.del(profileKey(record.userId));
   }
 
   // --- Helpers ---------------------------------------------------------------
@@ -409,12 +430,15 @@ export class AuthService {
     name: string;
     email: string;
     username: string;
+    tokenVersion: number;
   }) {
     return {
       id: user.id,
       name: user.name,
       email: user.email,
       username: user.username,
+      // Carried through so the controller can mint a JWT pinned to this version.
+      tokenVersion: user.tokenVersion,
     };
   }
 }

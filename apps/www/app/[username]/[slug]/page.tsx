@@ -165,7 +165,11 @@ export default async function BlogDetailPage({
       {!draft && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+          // Escape `<` so a user-controlled field (e.g. the title) can't close
+          // the <script> tag and inject markup — JSON.stringify alone does not.
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(articleSchema).replace(/</g, "\\u003c"),
+          }}
         />
       )}
       {!draft && <ViewTracker blogId={blog.id} />}

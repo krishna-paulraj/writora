@@ -46,7 +46,31 @@ export const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     div: ['class'],
     '*': ['data-*'],
   },
-  allowedSchemes: ['http', 'https', 'mailto', 'data'],
+  // `data:` is NOT allowed globally (a clickable <a href="data:text/html,…">
+  // is a phishing/XSS vector); it's permitted only on <img> for inline image
+  // previews via allowedSchemesByTag below.
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: {
+    img: ['http', 'https', 'data'],
+  },
+  // Constrain inline styles to a safe allowlist so stored content can't use
+  // e.g. `position:fixed` full-page overlays for defacement/clickjacking.
+  allowedStyles: {
+    '*': {
+      'text-align': [/^(left|right|center|justify)$/],
+      color: [
+        /^#(0x)?[0-9a-f]+$/i,
+        /^rgb\(\s*\d{1,3}(\s*,\s*\d{1,3}){2}\s*\)$/,
+      ],
+      'background-color': [
+        /^#(0x)?[0-9a-f]+$/i,
+        /^rgb\(\s*\d{1,3}(\s*,\s*\d{1,3}){2}\s*\)$/,
+      ],
+      'font-weight': [/^(normal|bold|[1-9]00)$/],
+      'font-style': [/^(normal|italic)$/],
+      'text-decoration': [/^(none|underline|line-through)$/],
+    },
+  },
   // Drop anything dangerous outright instead of escaping it
   disallowedTagsMode: 'discard',
   // Strip <script>, <style>, and their contents entirely
