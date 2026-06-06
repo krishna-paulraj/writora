@@ -184,6 +184,17 @@ export default function CalendarPage() {
     [load],
   );
 
+  // Show the current month and the next month side by side. With the toolbar
+  // removed there's no in-calendar navigation, so each calendar is pinned to a
+  // fixed month via the controlled `date` prop.
+  const months = useMemo(
+    () => [
+      moment().startOf("month").toDate(),
+      moment().add(1, "month").startOf("month").toDate(),
+    ],
+    [],
+  );
+
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: "All" },
     { id: "ai-planned", label: "AI planned" },
@@ -231,24 +242,36 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        <div style={{ height: 700 }}>
-          <ShadcnBigCalendar
-            localizer={localizer}
-            events={filtered}
-            startAccessor={(e: object) => (e as CalEvent).start as Date}
-            endAccessor={(e: object) => (e as CalEvent).end as Date}
-            onSelectEvent={handleSelectEvent}
-            onSelectSlot={handleSelectSlot}
-            selectable
-            eventPropGetter={eventPropGetter}
-            draggableAccessor={draggableAccessor}
-            onEventDrop={handleEventDrop}
-            resizable={false}
-            views={["month", "week", "agenda"]}
-            defaultView="month"
-            popup
-            style={{ height: "100%" }}
-          />
+        <div className="grid gap-6 xl:grid-cols-2">
+          {months.map((m) => (
+            <div key={m.toISOString()} className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium">
+                {moment(m).format("MMMM YYYY")}
+              </h3>
+              <div style={{ height: 600 }}>
+                <ShadcnBigCalendar
+                  localizer={localizer}
+                  events={filtered}
+                  date={m}
+                  onNavigate={() => {}}
+                  startAccessor={(e: object) => (e as CalEvent).start as Date}
+                  endAccessor={(e: object) => (e as CalEvent).end as Date}
+                  onSelectEvent={handleSelectEvent}
+                  onSelectSlot={handleSelectSlot}
+                  selectable
+                  eventPropGetter={eventPropGetter}
+                  draggableAccessor={draggableAccessor}
+                  onEventDrop={handleEventDrop}
+                  resizable={false}
+                  views={["month"]}
+                  defaultView="month"
+                  toolbar={false}
+                  popup
+                  style={{ height: "100%" }}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarIcon, ClockIcon, SparklesIcon } from "lucide-react";
+import {
+  CalendarIcon,
+  ChevronDownIcon,
+  ClockIcon,
+  SparklesIcon,
+} from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +21,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface QuickAddDialogProps {
   open: boolean;
@@ -80,6 +90,7 @@ function QuickAddForm({
   const [initial] = useState(() => defaultTimeOn(seedDate ?? new Date()));
   const [title, setTitle] = useState("");
   const [date, setDate] = useState<Date | undefined>(initial);
+  const [dateOpen, setDateOpen] = useState(false);
   const [time, setTime] = useState(toTimeInputValue(initial));
   const [submitting, setSubmitting] = useState(false);
 
@@ -130,40 +141,63 @@ function QuickAddForm({
           />
         </div>
 
-        <div className="space-y-2">
-          <Label className="flex items-center gap-2 text-sm font-medium">
-            <CalendarIcon className="size-4" />
-            Date
-          </Label>
-          <div className="rounded-lg border">
-            <Calendar
-              mode="single"
-              selected={date}
-              onSelect={setDate}
-              disabled={(d) => {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                return d < today;
-              }}
+        <div className="flex gap-3">
+          <div className="flex-1 space-y-2">
+            <Label
+              htmlFor="qa-date"
+              className="flex items-center gap-2 text-sm font-medium"
+            >
+              <CalendarIcon className="size-4" />
+              Date
+            </Label>
+            <Popover open={dateOpen} onOpenChange={setDateOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  id="qa-date"
+                  variant="outline"
+                  className="w-full justify-between font-normal"
+                >
+                  {date ? format(date, "MMM d, yyyy") : "Pick a date"}
+                  <ChevronDownIcon className="size-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-auto overflow-hidden p-0"
+                align="start"
+              >
+                <Calendar
+                  mode="single"
+                  selected={date}
+                  onSelect={(d) => {
+                    setDate(d);
+                    setDateOpen(false);
+                  }}
+                  disabled={(d) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    return d < today;
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="w-32 space-y-2">
+            <Label
+              htmlFor="qa-time"
+              className="flex items-center gap-2 text-sm font-medium"
+            >
+              <ClockIcon className="size-4" />
+              Time
+            </Label>
+            <Input
+              id="qa-time"
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="appearance-none [&::-webkit-calendar-picker-indicator]:hidden"
             />
           </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label
-            htmlFor="qa-time"
-            className="flex items-center gap-2 text-sm font-medium"
-          >
-            <ClockIcon className="size-4" />
-            Time
-          </Label>
-          <Input
-            id="qa-time"
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className="w-full"
-          />
         </div>
 
         {combined && (
