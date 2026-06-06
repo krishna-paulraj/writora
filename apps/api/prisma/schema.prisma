@@ -31,6 +31,10 @@ model User {
   // Monthly AI-generation usage, reserved atomically. aiUsageMonth is "YYYY-MM".
   aiUsageMonth         String?
   aiUsageCount         Int       @default(0)
+  // Bumped on password reset (and future "log out everywhere") to invalidate
+  // all previously-issued JWTs — the access token embeds this and the JWT
+  // strategy rejects tokens whose version is stale.
+  tokenVersion         Int       @default(0)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -69,6 +73,12 @@ model Site {
   avatarUrl     String?
   twitterHandle String?
   websiteUrl    String?
+
+  // AI image generation (Recraft). imageStyle is a recraftv3 style string;
+  // autoGenerateImages gates auto featured/inline image generation when AI
+  // articles are produced for this site.
+  imageStyle         String  @default("digital_illustration")
+  autoGenerateImages Boolean @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -78,9 +88,26 @@ model Site {
   articleJobs    ArticleJob[]
   contentPlans   ContentPlan[]
   publishTargets PublishTarget[]
+  networkMembership NetworkMembership?
 
   @@index([userId])
   @@index([userId, isPrimary])
+}
+
+// Per-site opt-in to the cross-site backlink network. Only sites with an
+// enabled membership participate (as link sources or targets). relPolicy +
+// maxOutboundPerPost + niche bound how/where this site links out.
+model NetworkMembership {
+  siteId             String   @id
+  site               Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  enabled            Boolean  @default(true)
+  relPolicy          String   @default("dofollow") // dofollow | nofollow
+  maxOutboundPerPost Int      @default(3)
+  niche              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([enabled])
 }
 
 model Category {
@@ -122,11 +149,51 @@ model Blog {
   views          BlogView[]
   articleJob     ArticleJob?
   publishRecords PublishRecord[]
+  embedding      BlogEmbedding?
+  backlinksOut   BacklinkEdge[] @relation("BacklinkFrom")
+  backlinksIn    BacklinkEdge[] @relation("BacklinkTo")
 
   @@unique([authorId, slug])
   @@unique([siteId, slug])
   @@index([scheduledAt])
   @@index([siteId])
+}
+
+// A single cross-site backlink: post `fromBlog` links to post `toBlog`. The
+// ledger of every network link — auditable, idempotent (one per pair), and the
+// source of truth for cleanup/removal.
+model BacklinkEdge {
+  id         String   @id @default(cuid())
+  fromBlogId String
+  fromBlog   Blog     @relation("BacklinkFrom", fields: [fromBlogId], references: [id], onDelete: Cascade)
+  toBlogId   String
+  toBlog     Blog     @relation("BacklinkTo", fields: [toBlogId], references: [id], onDelete: Cascade)
+  fromSiteId String
+  toSiteId   String
+  anchorText String
+  rel        String   @default("dofollow") // dofollow | nofollow
+  score      Float
+  placement  String   @default("block") // block | inline
+  status     String   @default("active") // active | removed
+  createdAt  DateTime @default(now())
+
+  @@unique([fromBlogId, toBlogId])
+  @@index([fromBlogId, status])
+  @@index([toBlogId, status])
+  @@index([toSiteId])
+}
+
+// Semantic embedding of a published blog, used to match related/network
+// articles. The `embedding` column is a pgvector type managed via raw SQL
+// (Prisma can't ORDER BY it); the typed columns here are used for skip-on-
+// unchanged-content and the FK. One row per blog.
+model BlogEmbedding {
+  blogId      String                      @id
+  blog        Blog                        @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  embedding   Unsupported("vector(1536)")
+  model       String
+  contentHash String
+  updatedAt   DateTime                    @default(now())
 }
 
 model BlogView {
@@ -294,7 +361,10 @@ model ContentPlanItem {
   // Real per-article target date the planner UI drives. The scheduler dispatches
   // an item once scheduledFor <= now (null = no date yet → never date-dispatched).
   scheduledFor  DateTime?
-  articleJobId  String?
+  // @unique both enforces one item per generated job and provides the index for
+  // the hot `updateMany where articleJobId` job-state sync (NULLs are allowed to
+  // repeat in Postgres, so un-dispatched items are unaffected).
+  articleJobId  String?     @unique
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -371,4 +441,16 @@ model Notification {
 
   @@index([userId, read])
   @@index([userId, createdAt])
+}
+
+// Idempotency ledger for Stripe webhook events. The webhook handler records
+// each event id before processing; a duplicate insert (Stripe re-delivery or a
+// replayed body within the signature tolerance window) is detected by the PK
+// conflict and skipped, so lifecycle events are applied at most once.
+model ProcessedStripeEvent {
+  id        String   @id // Stripe event id, e.g. evt_...
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

@@ -12,6 +12,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { BlogService } from '../blog/blog.service';
 import { AiService, ArticleInput, ArticleLength, Tone } from './ai.service';
+import { ImageGenerationService } from './image-generation.service';
+import { BacklinkService } from '../backlink/backlink.service';
 import { GenerateArticleDto } from './dto/generate-article.dto';
 import {
   NotificationsService,
@@ -20,6 +22,9 @@ import {
 import { EntitlementsService } from '../entitlements/entitlements.service';
 
 const ARTICLE_GEN_QUEUE = 'article.generate';
+
+// Cap auto-generated inline images per article to bound Recraft spend + latency.
+const MAX_INLINE_IMAGES = 3;
 
 interface ArticleGenJob {
   jobId: string;
@@ -46,6 +51,22 @@ function slugify(text: string): string {
   return base || 'article';
 }
 
+function stripTags(html: string): string {
+  return html.replace(/<[^>]*>/g, '').trim();
+}
+
+function escapeHtmlAttr(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 @Injectable()
 export class ArticleGenerationService implements OnModuleInit {
   private readonly logger = new Logger(ArticleGenerationService.name);
@@ -57,6 +78,8 @@ export class ArticleGenerationService implements OnModuleInit {
     private queue: QueueService,
     private notifications: NotificationsService,
     private entitlements: EntitlementsService,
+    private imageGen: ImageGenerationService,
+    private backlinks: BacklinkService,
   ) {}
 
   async onModuleInit() {
@@ -241,17 +264,43 @@ export class ArticleGenerationService implements OnModuleInit {
       const description =
         article.metaDescription.trim() || job.topic.slice(0, 160);
 
+      // Best-effort imagery: a featured cover + inline section images. Failures
+      // here must never fail the article, so illustrate() swallows its own
+      // errors and falls back to the un-illustrated content.
+      await this.updateProgress(jobId, 92);
+      const { contentHtml, imageUrl } = await this.illustrate(
+        {
+          siteId: job.siteId,
+          topic: job.topic,
+          targetKeyword: job.targetKeyword,
+        },
+        {
+          title,
+          contentHtml: article.contentHtml,
+          metaDescription: article.metaDescription,
+        },
+      );
+
       // The background worker reads siteId off the job (it can't derive an
       // "active site" — there's no request), landing the draft on the right site.
       const draft = await this.blog.create(job.authorId, job.siteId, {
         title,
         slug,
         description,
-        content: article.contentHtml,
+        content: contentHtml,
+        imageUrl,
         category: job.category?.trim() || 'General',
         targetKeyword: job.targetKeyword ?? undefined,
         published: false,
       });
+
+      // Best-effort: weave outbound cross-site network backlinks into the draft
+      // (no-op unless the site is an entitled, enabled network member).
+      await this.backlinks
+        .placeOutboundForBlog(draft.id)
+        .catch((err) =>
+          this.logger.warn(`backlink placement failed: ${errMessage(err)}`),
+        );
 
       await this.prisma.articleJob.update({
         where: { id: jobId },
@@ -347,6 +396,103 @@ export class ArticleGenerationService implements OnModuleInit {
     } catch {
       // Progress is best-effort; ignore races (e.g. job deleted mid-run).
     }
+  }
+
+  /**
+   * Best-effort imagery for a freshly generated article: a featured cover image
+   * (returned as imageUrl) plus inline images spliced after the first
+   * {@link MAX_INLINE_IMAGES} H2 sections. Honors the site's imageStyle and
+   * autoGenerateImages toggle, and never throws — any failure logs and falls
+   * back to the original content so the article still ships.
+   */
+  private async illustrate(
+    job: { siteId: string; topic: string; targetKeyword: string | null },
+    article: { title: string; contentHtml: string; metaDescription: string },
+  ): Promise<{ contentHtml: string; imageUrl?: string }> {
+    const fallback = { contentHtml: article.contentHtml };
+    if (!this.imageGen.isConfigured()) return fallback;
+
+    const site = await this.prisma.site
+      .findUnique({
+        where: { id: job.siteId },
+        select: { imageStyle: true, autoGenerateImages: true },
+      })
+      .catch(() => null);
+    if (!site?.autoGenerateImages) return fallback;
+
+    const style = site.imageStyle;
+
+    let imageUrl: string | undefined;
+    try {
+      const r = await this.imageGen.generateImage({
+        kind: 'featured',
+        style,
+        title: article.title,
+        description: article.metaDescription,
+        keyword: job.targetKeyword ?? undefined,
+      });
+      imageUrl = r.url;
+    } catch (err) {
+      this.logger.warn(`featured image generation failed: ${errMessage(err)}`);
+    }
+
+    const contentHtml = await this.illustrateInline(
+      article.contentHtml,
+      article.title,
+      style,
+    );
+
+    return { contentHtml, imageUrl };
+  }
+
+  /** Generate and splice inline images after each of the first N H2 headings. */
+  private async illustrateInline(
+    html: string,
+    title: string,
+    style: string,
+  ): Promise<string> {
+    const matches = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)];
+    if (matches.length === 0) return html;
+    const targets = matches.slice(0, MAX_INLINE_IMAGES);
+    if (matches.length > targets.length) {
+      this.logger.log(
+        `inline images capped at ${MAX_INLINE_IMAGES} (article has ${matches.length} sections)`,
+      );
+    }
+
+    const inserts = await Promise.all(
+      targets.map(async (m) => {
+        const heading = stripTags(m[1]);
+        try {
+          const r = await this.imageGen.generateImage({
+            kind: 'inline',
+            style,
+            title,
+            heading,
+          });
+          const alt = escapeHtmlAttr(heading || title);
+          return {
+            end: (m.index ?? 0) + m[0].length,
+            html: `\n<figure><img src="${escapeHtmlAttr(r.url)}" alt="${alt}" /></figure>`,
+          };
+        } catch (err) {
+          this.logger.warn(
+            `inline image generation failed: ${errMessage(err)}`,
+          );
+          return null;
+        }
+      }),
+    );
+
+    // Apply insertions back-to-front so earlier match offsets stay valid.
+    let out = html;
+    const ordered = inserts
+      .filter((x): x is { end: number; html: string } => x !== null)
+      .sort((a, b) => b.end - a.end);
+    for (const ins of ordered) {
+      out = out.slice(0, ins.end) + ins.html + out.slice(ins.end);
+    }
+    return out;
   }
 
   private async uniqueSlug(authorId: string, title: string): Promise<string> {

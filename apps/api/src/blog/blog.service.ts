@@ -19,6 +19,10 @@ import {
   NotificationsService,
   NotificationType,
 } from '../notifications/notifications.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
+import { BlogEmbeddingService } from '../embedding/blog-embedding.service';
+import { BacklinkService } from '../backlink/backlink.service';
+import { BacklinkBackfillService } from '../backlink/backlink-backfill.service';
 
 const NEWSLETTER_QUEUE = 'newsletter.blast';
 interface NewsletterJob {
@@ -97,6 +101,10 @@ export class BlogService implements OnModuleInit {
     private cache: CacheService,
     private queue: QueueService,
     private notifications: NotificationsService,
+    private entitlements: EntitlementsService,
+    private blogEmbeddings: BlogEmbeddingService,
+    private backlinks: BacklinkService,
+    private backfill: BacklinkBackfillService,
   ) {}
 
   async onModuleInit() {
@@ -145,11 +153,20 @@ export class BlogService implements OnModuleInit {
         ...dto,
         content,
         readTime: computeReadTime(content),
+        // Keep publishedAt consistent with `published` even on the create path
+        // (the full publish side-effects live in update()), so a post created
+        // already-published doesn't end up live with a null publishedAt.
+        publishedAt: dto.published ? new Date() : null,
         authorId,
         siteId,
       },
     });
     await this.invalidateAuthorCache(authorId);
+    // Embed + earn backlinks immediately if created already-published (rare).
+    if (created.published) {
+      await this.blogEmbeddings.enqueue(created.id);
+      await this.backfill.enqueue(created.id);
+    }
     return created;
   }
 
@@ -252,6 +269,21 @@ export class BlogService implements OnModuleInit {
       });
     }
 
+    // Keep the semantic embedding in sync: (re)embed on publish or live-content
+    // edits; drop it when unpublished (so it leaves similarity/network results).
+    if (!blog.published && updated.published) {
+      await this.blogEmbeddings.enqueue(updated.id);
+      await this.backfill.enqueue(updated.id);
+    } else if (updated.published && dto.content !== undefined) {
+      await this.blogEmbeddings.enqueue(updated.id);
+    } else if (blog.published && !updated.published) {
+      await this.blogEmbeddings.remove(updated.id);
+      // No longer a valid backlink target — strip inbound links from sources.
+      await this.backlinks
+        .onTargetUnavailable(updated.id)
+        .catch(() => undefined);
+    }
+
     return updated;
   }
 
@@ -331,6 +363,10 @@ export class BlogService implements OnModuleInit {
         blogId: post.id,
         authorId: post.authorId,
       });
+      // (Re)embed the now-live post for similarity/network matching, then earn
+      // inbound network backlinks.
+      await this.blogEmbeddings.enqueue(post.id);
+      await this.backfill.enqueue(post.id);
       // Notify the author their scheduled post went live (they weren't watching).
       await this.notifications.emit(post.authorId, {
         type: NotificationType.BlogPublished,
@@ -404,6 +440,9 @@ export class BlogService implements OnModuleInit {
     if (blog.authorId !== authorId) {
       throw new ForbiddenException();
     }
+    // Strip inbound network links from source posts BEFORE the delete (the FK
+    // cascade removes the edges but can't touch the HTML in other posts).
+    await this.backlinks.onTargetUnavailable(id).catch(() => undefined);
     const deleted = await this.prisma.blog.delete({ where: { id } });
     await this.invalidateAuthorCache(authorId);
     return deleted;
@@ -486,16 +525,25 @@ export class BlogService implements OnModuleInit {
       select: {
         slug: true,
         isPrimary: true,
-        user: { select: { username: true } },
+        user: { select: { id: true, username: true } },
       },
     });
-    const result: DomainResult = site
-      ? {
-          username: site.user.username,
-          siteSlug: site.slug,
-          isPrimary: site.isPrimary,
-        }
-      : null;
+    // Custom domains are a paid feature: only resolve one while the owner is
+    // still entitled, so a domain set on Pro stops working after a downgrade
+    // (rather than persisting indefinitely). Bounded by the domain cache TTL.
+    let entitled = false;
+    if (site) {
+      const plan = await this.entitlements.effectivePlan(site.user.id);
+      entitled = this.entitlements.limitsFor(plan).customDomain;
+    }
+    const result: DomainResult =
+      site && entitled
+        ? {
+            username: site.user.username,
+            siteSlug: site.slug,
+            isPrimary: site.isPrimary,
+          }
+        : null;
     await this.cache.set(key, { value: result }, DOMAIN_TTL);
     return result;
   }
@@ -599,6 +647,9 @@ export class BlogService implements OnModuleInit {
     const blogs = await this.prisma.blog.findMany({
       where: { siteId: site.id, published: true },
       orderBy: { createdAt: 'desc' },
+      // Cap the public list so a prolific site can't force an unbounded
+      // payload/render. (Cursor pagination for the full archive is a follow-up.)
+      take: 100,
       include: { author: { select: { id: true, name: true, username: true } } },
     });
     return { user: this.publicProfile(site, author), blogs };
@@ -633,7 +684,31 @@ export class BlogService implements OnModuleInit {
     });
     const sameCat = relatedBlogs.filter((b) => b.category === blog.category);
     const otherCat = relatedBlogs.filter((b) => b.category !== blog.category);
-    const related = [...sameCat, ...otherCat].slice(0, 3);
+    let related = [...sameCat, ...otherCat].slice(0, 3);
+
+    // Prefer semantic similarity (same site) when embeddings exist; otherwise
+    // keep the category heuristic above as the fallback.
+    try {
+      const similar = await this.blogEmbeddings.findSimilar(blog.id, {
+        sameSiteId: site.id,
+        limit: 3,
+        minScore: 0.2,
+      });
+      if (similar.length > 0) {
+        const byId = await this.prisma.blog.findMany({
+          where: { id: { in: similar.map((s) => s.blogId) } },
+          include: {
+            author: { select: { id: true, name: true, username: true } },
+          },
+        });
+        const rank = new Map(similar.map((s, i) => [s.blogId, i]));
+        related = byId.sort(
+          (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0),
+        );
+      }
+    } catch {
+      // similarity unavailable (e.g. embeddings off) — use category fallback
+    }
 
     return {
       blog,

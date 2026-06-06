@@ -26,6 +26,9 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { EntitlementsModule } from './entitlements/entitlements.module';
 import { SiteModule } from './site/site.module';
 import { BillingModule } from './billing/billing.module';
+import { EmbeddingModule } from './embedding/embedding.module';
+import { NetworkModule } from './network/network.module';
+import { BacklinkModule } from './backlink/backlink.module';
 import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
 
 @Module({
@@ -36,6 +39,8 @@ import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
     CacheModule,
     QueueModule,
     StorageModule,
+    EmbeddingModule,
+    BacklinkModule,
     EmailModule,
     AuthModule,
     BlogModule,
@@ -53,6 +58,7 @@ import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
     EntitlementsModule,
     SiteModule,
     BillingModule,
+    NetworkModule,
     ThrottlerModule.forRootAsync({
       imports: [CacheModule],
       inject: [RedisThrottlerStorage],

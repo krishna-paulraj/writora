@@ -9,6 +9,7 @@ export interface PlanLimits {
   autopilot: boolean;
   destinations: number;
   customDomain: boolean;
+  backlinkNetwork: boolean;
 }
 
 // Static plan→limits table. Limits live in code (not the DB); usage is counted
@@ -20,6 +21,7 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
     autopilot: false,
     destinations: 0,
     customDomain: false,
+    backlinkNetwork: false,
   },
   pro: {
     sites: 5,
@@ -27,6 +29,7 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
     autopilot: true,
     destinations: 10,
     customDomain: true,
+    backlinkNetwork: true,
   },
   business: {
     sites: 25,
@@ -34,11 +37,22 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
     autopilot: true,
     destinations: 100,
     customDomain: true,
+    backlinkNetwork: true,
   },
 };
 
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+
+// A paid plan only confers entitlements while the Stripe subscription is in one
+// of these states. Notably this EXCLUDES `incomplete`, `incomplete_expired`,
+// and `unpaid` (no successful payment) and `canceled`. `past_due` is kept as a
+// short grace window. Anything else falls back to the free plan.
+const ENTITLED_STATUSES = new Set(['active', 'trialing', 'past_due']);
+
+function isEntitled(status: string | null | undefined): boolean {
+  return ENTITLED_STATUSES.has(status ?? '');
 }
 
 @Injectable()
@@ -53,14 +67,21 @@ export class EntitlementsService {
     return PLAN_LIMITS[this.normalizePlan(plan)];
   }
 
-  /** Effective plan: a canceled subscription drops to free; past_due stays entitled. */
+  /**
+   * Effective plan. A paid plan only counts while the subscription is in an
+   * entitled status (active/trialing/past_due) — incomplete/unpaid/canceled
+   * subscriptions (no successful payment) fall back to free, so a never-paid or
+   * lapsed checkout can't grant paid features.
+   */
   async effectivePlan(userId: string): Promise<PlanName> {
     const u = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { plan: true, subscriptionStatus: true },
     });
-    if (!u || u.subscriptionStatus === 'canceled') return 'free';
-    return this.normalizePlan(u.plan);
+    if (!u) return 'free';
+    const plan = this.normalizePlan(u.plan);
+    if (plan === 'free') return 'free';
+    return isEntitled(u.subscriptionStatus) ? plan : 'free';
   }
 
   async assertCanCreateSite(userId: string): Promise<void> {
@@ -107,6 +128,19 @@ export class EntitlementsService {
         'Custom domains are not available on your plan. Upgrade to enable them.',
       );
     }
+  }
+
+  async assertBacklinkNetwork(userId: string): Promise<void> {
+    if (!this.limitsFor(await this.effectivePlan(userId)).backlinkNetwork) {
+      throw new ForbiddenException(
+        'The backlink network is not available on your plan. Upgrade to join.',
+      );
+    }
+  }
+
+  /** Non-throwing check for background workers (must not break the loop). */
+  async hasBacklinkNetwork(userId: string): Promise<boolean> {
+    return this.limitsFor(await this.effectivePlan(userId)).backlinkNetwork;
   }
 
   /**
@@ -169,10 +203,11 @@ export class EntitlementsService {
         aiUsageCount: true,
       },
     });
+    const normalized = this.normalizePlan(u?.plan);
     const plan =
-      u?.subscriptionStatus === 'canceled'
-        ? 'free'
-        : this.normalizePlan(u?.plan);
+      normalized !== 'free' && isEntitled(u?.subscriptionStatus)
+        ? normalized
+        : 'free';
     const limits = PLAN_LIMITS[plan];
     const month = currentMonth();
     const aiUsed = u?.aiUsageMonth === month ? u.aiUsageCount : 0;

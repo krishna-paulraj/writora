@@ -34,6 +34,7 @@ import {
   RocketIcon,
   SendIcon,
   CreditCardIcon,
+  Link2Icon,
 } from "lucide-react";
 import { FaWordpress } from "react-icons/fa";
 import { FaXTwitter, FaMedium, FaDiscord, FaTelegram } from "react-icons/fa6";
@@ -73,6 +74,11 @@ const data = {
       title: "Destinations",
       url: "/destinations",
       icon: <SendIcon />,
+    },
+    {
+      title: "Backlink Network",
+      url: "/network",
+      icon: <Link2Icon />,
     },
     {
       title: "Subscribers",

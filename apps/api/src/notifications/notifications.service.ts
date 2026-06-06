@@ -10,6 +10,7 @@ export const NotificationType = {
   PublishFailed: 'publish.failed',
   PlanCompleted: 'plan.completed',
   BlogPublished: 'blog.published',
+  BacklinkEarned: 'backlink.earned',
 } as const;
 
 export type NotificationTypeValue =

@@ -8,6 +8,7 @@ export interface PlanLimits {
   autopilot: boolean;
   destinations: number;
   customDomain: boolean;
+  backlinkNetwork: boolean;
 }
 
 export interface Entitlements {
