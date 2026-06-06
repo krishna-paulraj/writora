@@ -12,6 +12,11 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import {
   Card,
   CardContent,
@@ -35,8 +40,16 @@ import {
   deleteSite,
   listSites,
   setSiteDomain,
+  updateSite,
   type Site,
 } from "@/lib/sites";
+
+const IMAGE_STYLES: { value: string; label: string }[] = [
+  { value: "digital_illustration", label: "Digital illustration" },
+  { value: "realistic_image", label: "Realistic photo" },
+  { value: "vector_illustration", label: "Vector illustration" },
+  { value: "icon", label: "Icon" },
+];
 import { getMe, type Entitlements } from "@/lib/account";
 
 function SitesInner() {
@@ -93,6 +106,24 @@ function SitesInner() {
       await refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to set domain");
+    }
+  };
+
+  const handleImageSettings = async (
+    site: Site,
+    patch: { imageStyle?: string; autoGenerateImages?: boolean },
+  ) => {
+    // Optimistic — image settings are low-stakes; reconcile on failure.
+    setSites(
+      (cur) =>
+        cur?.map((s) => (s.id === site.id ? { ...s, ...patch } : s)) ?? cur,
+    );
+    try {
+      await updateSite(site.id, patch);
+      toast.success("Image settings saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save settings");
+      await refresh();
     }
   };
 
@@ -259,6 +290,41 @@ function SitesInner() {
                   >
                     Save
                   </Button>
+                </div>
+
+                <Separator />
+
+                <div className="flex flex-wrap items-end gap-4">
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-xs">AI image style</Label>
+                    <NativeSelect
+                      className="w-full"
+                      value={site.imageStyle}
+                      onChange={(e) =>
+                        handleImageSettings(site, {
+                          imageStyle: e.target.value,
+                        })
+                      }
+                    >
+                      {IMAGE_STYLES.map((s) => (
+                        <NativeSelectOption key={s.value} value={s.value}>
+                          {s.label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                  <div className="flex items-center gap-2 pb-1.5">
+                    <Switch
+                      id={`autogen-${site.id}`}
+                      checked={site.autoGenerateImages}
+                      onCheckedChange={(v) =>
+                        handleImageSettings(site, { autoGenerateImages: v })
+                      }
+                    />
+                    <Label htmlFor={`autogen-${site.id}`} className="text-xs">
+                      Auto-generate images for AI articles
+                    </Label>
+                  </div>
                 </div>
               </div>
             ))}

@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/popover";
 import { SparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { uploadImage } from "@/lib/upload";
+import { generateImage, uploadImage } from "@/lib/upload";
 import { suggestTitles, summarize } from "@/lib/ai";
 import { scoreSeo, type SeoScoreResult } from "@/lib/seo";
 import { Progress } from "@/components/ui/progress";
@@ -277,6 +277,7 @@ export default function EditBlogPage() {
   const [loadingTitles, setLoadingTitles] = useState(false);
   const [titleOpen, setTitleOpen] = useState(false);
   const [generatingDesc, setGeneratingDesc] = useState(false);
+  const [generatingCover, setGeneratingCover] = useState(false);
 
   const handleSuggestTitles = async () => {
     if (!form.content || form.content.trim().length < 30) {
@@ -336,6 +337,31 @@ export default function EditBlogPage() {
       }
     };
     input.click();
+  };
+
+  const handleGenerateCover = async () => {
+    if (!form.title.trim()) {
+      toast.error("Add a title first");
+      return;
+    }
+    setGeneratingCover(true);
+    const tId = toast.loading("Generating featured image…");
+    try {
+      const url = await generateImage({
+        kind: "featured",
+        title: form.title,
+        description: form.description,
+        keyword: form.targetKeyword,
+      });
+      setForm((prev) => ({ ...prev, imageUrl: url }));
+      toast.success("Featured image generated", { id: tId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Generation failed", {
+        id: tId,
+      });
+    } finally {
+      setGeneratingCover(false);
+    }
   };
 
   const handlePublish = async () => {
@@ -653,6 +679,21 @@ export default function EditBlogPage() {
                           <span className="text-xs">Upload featured image</span>
                         </div>
                       </button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleGenerateCover}
+                        disabled={generatingCover}
+                        className="w-full"
+                      >
+                        {generatingCover ? (
+                          <Loader2Icon className="size-3.5 animate-spin" />
+                        ) : (
+                          <SparklesIcon className="size-3.5" />
+                        )}
+                        {generatingCover ? "Generating…" : "Generate with AI"}
+                      </Button>
                       <div className="text-muted-foreground text-center text-xs">
                         or paste a URL
                       </div>

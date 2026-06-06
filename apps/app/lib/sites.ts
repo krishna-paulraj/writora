@@ -12,6 +12,8 @@ export interface Site {
   avatarUrl: string | null;
   twitterHandle: string | null;
   websiteUrl: string | null;
+  imageStyle: string;
+  autoGenerateImages: boolean;
   createdAt: string;
 }
 
@@ -45,6 +47,8 @@ export async function updateSite(
     avatarUrl: string | null;
     twitterHandle: string | null;
     websiteUrl: string | null;
+    imageStyle: string;
+    autoGenerateImages: boolean;
   }>,
 ): Promise<Site> {
   const res = await apiFetch(`/sites/${id}`, {

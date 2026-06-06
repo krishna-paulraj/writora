@@ -51,6 +51,8 @@ const PUBLIC_SITE_SELECT = {
   avatarUrl: true,
   twitterHandle: true,
   websiteUrl: true,
+  imageStyle: true,
+  autoGenerateImages: true,
   createdAt: true,
 } satisfies Prisma.SiteSelect;
 
@@ -160,6 +162,10 @@ export class SiteService {
       data.twitterHandle = dto.twitterHandle?.trim() || null;
     if (dto.websiteUrl !== undefined)
       data.websiteUrl = dto.websiteUrl?.trim() || null;
+    if (typeof dto.imageStyle === 'string')
+      data.imageStyle = dto.imageStyle.trim() || 'digital_illustration';
+    if (typeof dto.autoGenerateImages === 'boolean')
+      data.autoGenerateImages = dto.autoGenerateImages;
 
     try {
       return this.project(
@@ -333,6 +339,8 @@ export class SiteService {
     avatarUrl: string | null;
     twitterHandle: string | null;
     websiteUrl: string | null;
+    imageStyle: string;
+    autoGenerateImages: boolean;
     createdAt: Date;
   }) {
     return site;

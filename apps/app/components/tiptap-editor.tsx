@@ -30,9 +30,10 @@ import {
   Undo2Icon,
   Redo2Icon,
   CodeXmlIcon,
+  SparklesIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { uploadImage } from "@/lib/upload";
+import { generateImage, uploadImage } from "@/lib/upload";
 import { toast } from "sonner";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -94,9 +95,11 @@ function ToolbarButton({
 function EditorToolbar({
   editor,
   onPickImage,
+  onGenerateImage,
 }: {
   editor: Editor;
   onPickImage: () => void;
+  onGenerateImage: () => void;
 }) {
   // Force re-render on selection/content changes so active states update
   const [, setForceUpdate] = useState(0);
@@ -286,6 +289,9 @@ function EditorToolbar({
       <ToolbarButton onClick={onPickImage} title="Image (or drop / paste)">
         <ImageIcon className="size-4" />
       </ToolbarButton>
+      <ToolbarButton onClick={onGenerateImage} title="Generate image with AI">
+        <SparklesIcon className="size-4" />
+      </ToolbarButton>
     </div>
   );
 }
@@ -392,6 +398,22 @@ export function TiptapEditor({ content, onChange }: TiptapEditorProps) {
     input.click();
   }, []);
 
+  const generateImageInline = useCallback(async () => {
+    if (!editor) return;
+    const brief = window.prompt("Describe the image to generate:");
+    if (!brief || !brief.trim()) return;
+    const tId = toast.loading("Generating image…");
+    try {
+      const url = await generateImage({ kind: "inline", heading: brief.trim() });
+      editor.chain().focus().setImage({ src: url }).run();
+      toast.success("Image inserted", { id: tId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Generation failed", {
+        id: tId,
+      });
+    }
+  }, [editor]);
+
   // Sync external content changes
   useEffect(() => {
     if (editor && content !== editor.getHTML()) {
@@ -403,7 +425,11 @@ export function TiptapEditor({ content, onChange }: TiptapEditorProps) {
 
   return (
     <div className="rounded-lg border">
-      <EditorToolbar editor={editor} onPickImage={pickImage} />
+      <EditorToolbar
+        editor={editor}
+        onPickImage={pickImage}
+        onGenerateImage={generateImageInline}
+      />
       <TiptapAiMenu editor={editor} />
       <div className="px-6 py-4">
         <EditorContent editor={editor} />

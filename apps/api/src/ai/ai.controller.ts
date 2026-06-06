@@ -7,16 +7,20 @@ import {
   Post,
   Req,
   Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AiService, EditAction, Tone } from './ai.service';
 import { ArticleGenerationService } from './article-generation.service';
+import { ImageGenerationService, ImageKind } from './image-generation.service';
 import { GenerateArticleDto } from './dto/generate-article.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SiteContextGuard } from '../site/site-context.guard';
 import { CurrentSite } from '../site/current-site.decorator';
+import { PrismaService } from '../prisma/prisma.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 interface EditBody {
   action: EditAction;
@@ -28,6 +32,16 @@ interface ContentBody {
   content: string;
 }
 
+interface GenerateImageBody {
+  kind?: ImageKind;
+  title?: string;
+  heading?: string;
+  description?: string;
+  keyword?: string;
+  prompt?: string;
+  style?: string;
+}
+
 const HOUR = 60 * 60_000;
 
 @UseGuards(JwtAuthGuard, SiteContextGuard)
@@ -36,6 +50,9 @@ export class AiController {
   constructor(
     private ai: AiService,
     private articleGen: ArticleGenerationService,
+    private imageGen: ImageGenerationService,
+    private prisma: PrismaService,
+    private entitlements: EntitlementsService,
   ) {}
 
   // 60 AI edits per hour per IP — generous for active writing, expensive enough
@@ -110,5 +127,50 @@ export class AiController {
   getArticleJob(@Req() req: Request, @Param('jobId') jobId: string) {
     const user = req.user as { id: string };
     return this.articleGen.getJob(user.id, jobId);
+  }
+
+  // On-demand image generation for the editor (cover + inline). Generating an
+  // image is a paid Recraft call, so cap it tighter than text edits.
+  @Throttle({ default: { limit: 30, ttl: HOUR } })
+  @Post('image')
+  async generateImage(
+    @Req() req: Request,
+    @CurrentSite() siteId: string,
+    @Body() body: GenerateImageBody,
+  ) {
+    if (!this.imageGen.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Image generation is not configured on this server',
+      );
+    }
+    const user = req.user as { id: string };
+    // Image generation is a paid external (Recraft) call, so meter it against
+    // the user's monthly AI quota and gate it by plan — same accounting as
+    // article generation. Throws 403 when the monthly limit is exhausted.
+    await this.entitlements.assertCanGenerateAi(user.id);
+    try {
+      // Style precedence: explicit request style → the site's default → fallback.
+      let style = body.style;
+      if (!style) {
+        const site = await this.prisma.site.findUnique({
+          where: { id: siteId },
+          select: { imageStyle: true },
+        });
+        style = site?.imageStyle;
+      }
+      return await this.imageGen.generateImage({
+        kind: body.kind ?? 'featured',
+        style,
+        title: body.title,
+        heading: body.heading,
+        description: body.description,
+        keyword: body.keyword,
+        prompt: body.prompt,
+      });
+    } catch (err) {
+      // Refund the reserved slot when generation fails to produce an image.
+      await this.entitlements.releaseAiGeneration(user.id);
+      throw err;
+    }
   }
 }
