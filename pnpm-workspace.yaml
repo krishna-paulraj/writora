@@ -1,3 +1,22 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Dependencies allowed to run install/build lifecycle scripts (pnpm blocks these
+# by default). Required so native deps compile/fetch binaries on a fresh install
+# (CI, Render). Moved here from package.json's "pnpm" field, which pnpm 10.28+
+# no longer reads.
+onlyBuiltDependencies:
+  - "@nestjs/core"
+  - "@prisma/engines"
+  - "bcrypt"
+  - "msw"
+  - "prisma"
+  - "sharp"
+  - "unrs-resolver"
+
+overrides:
+  "@types/react": "19.2.2"
+  "@types/react-dom": "19.2.2"
+  "react": "19.2.0"
+  "react-dom": "19.2.0"
