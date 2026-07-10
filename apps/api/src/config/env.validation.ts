@@ -68,6 +68,28 @@ export function validate(
     );
   }
 
+  // Billing is optional, but a PARTIAL Stripe config is a silent-failure trap
+  // that's worse than no billing at all: with a secret key but no webhook
+  // secret, checkouts succeed while subscription webhooks fail verification (503)
+  // — the customer pays and never receives their entitlements. If billing is
+  // enabled at all, require the pieces that make it actually work.
+  const stripeKey =
+    typeof config.STRIPE_SECRET_KEY === 'string' ? config.STRIPE_SECRET_KEY : '';
+  if (stripeKey) {
+    const has = (k: string) =>
+      typeof config[k] === 'string' && (config[k] as string).length > 0;
+    if (!has('STRIPE_WEBHOOK_SECRET')) {
+      problems.push(
+        'STRIPE_SECRET_KEY is set but STRIPE_WEBHOOK_SECRET is missing — subscription webhooks cannot be verified, so paid upgrades would never take effect',
+      );
+    }
+    if (!has('STRIPE_PRICE_PRO') && !has('STRIPE_PRICE_BUSINESS')) {
+      problems.push(
+        'STRIPE_SECRET_KEY is set but no plan price is configured — set STRIPE_PRICE_PRO and/or STRIPE_PRICE_BUSINESS (price_… ids) or checkout has nothing to sell',
+      );
+    }
+  }
+
   if (problems.length > 0) {
     const message = `Invalid environment configuration:\n  - ${problems.join('\n  - ')}`;
     if (isProduction) {

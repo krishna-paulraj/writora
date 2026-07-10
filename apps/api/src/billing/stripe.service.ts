@@ -13,6 +13,12 @@ const STRIPE_API = 'https://api.stripe.com/v1';
 const TIMEOUT_MS = 20_000;
 const WEBHOOK_TOLERANCE_S = 300;
 
+// Subscription states that mean the customer still has a live subscription we
+// must NOT open a second Checkout against (that would bill them twice). Mirrors
+// EntitlementsService.ENTITLED_STATUSES — kept local so billing has no import
+// dependency on the entitlements module for a three-element set.
+const LIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'past_due']);
+
 type PlanName = 'free' | 'pro' | 'business';
 
 interface StripeEvent {
@@ -123,11 +129,16 @@ export class StripeService {
     }
   }
 
-  private async ensureCustomer(userId: string): Promise<string> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { stripeCustomerId: true, email: true, name: true },
-    });
+  private async ensureCustomer(
+    userId: string,
+    loaded?: { stripeCustomerId: string | null; email: string; name: string },
+  ): Promise<string> {
+    const user =
+      loaded ??
+      (await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { stripeCustomerId: true, email: true, name: true },
+      }));
     if (!user) throw new BadRequestException('User not found');
     if (user.stripeCustomerId) return user.stripeCustomerId;
 
@@ -150,7 +161,46 @@ export class StripeService {
     if (!priceId) {
       throw new BadRequestException('Unknown or unavailable plan');
     }
-    const customer = await this.ensureCustomer(userId);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        subscriptionStatus: true,
+        email: true,
+        name: true,
+      },
+    });
+    if (!user) throw new BadRequestException('User not found');
+
+    // Plan CHANGE vs. first purchase. A customer with a still-live subscription
+    // must switch plans ON that subscription — a fresh `mode: subscription`
+    // Checkout would create a *parallel* subscription and bill them for both.
+    // Route them into the Billing Portal's plan-update flow (Stripe handles
+    // proration + confirmation). A canceled/lapsed user (not a live status)
+    // falls through to a normal Checkout so they can re-subscribe.
+    if (
+      user.stripeCustomerId &&
+      LIVE_SUBSCRIPTION_STATUSES.has(user.subscriptionStatus ?? '')
+    ) {
+      if (user.stripeSubscriptionId) {
+        try {
+          return await this.portalSession(user.stripeCustomerId, {
+            'flow_data[type]': 'subscription_update',
+            'flow_data[subscription_update][subscription]':
+              user.stripeSubscriptionId,
+          });
+        } catch {
+          // Portal not configured for in-app plan changes — fall back to the
+          // plain portal so the user can still manage their subscription. The
+          // essential guarantee (never open a second Checkout) is preserved.
+        }
+      }
+      return this.portalSession(user.stripeCustomerId);
+    }
+
+    const customer = await this.ensureCustomer(userId, user);
     const session = await this.stripeFetch('checkout/sessions', {
       mode: 'subscription',
       customer,
@@ -179,9 +229,22 @@ export class StripeService {
     if (!user?.stripeCustomerId) {
       throw new BadRequestException('No active subscription to manage');
     }
+    return this.portalSession(user.stripeCustomerId);
+  }
+
+  /**
+   * Opens a Billing Portal session for a customer. `extra` can carry a
+   * `flow_data[...]` deep link (e.g. the subscription-update flow) to land the
+   * customer on a specific screen; omitted, it opens the portal home.
+   */
+  private async portalSession(
+    customerId: string,
+    extra: Record<string, string> = {},
+  ): Promise<{ url: string }> {
     const session = await this.stripeFetch('billing_portal/sessions', {
-      customer: user.stripeCustomerId,
+      customer: customerId,
       return_url: `${this.appUrl}/billing`,
+      ...extra,
     });
     const url = session.url;
     if (typeof url !== 'string') {
