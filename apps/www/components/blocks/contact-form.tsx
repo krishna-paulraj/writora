@@ -43,20 +43,27 @@ export function ContactForm() {
     } as unknown as Schema,
   });
   const formAction = useAction(serverAction, {
-    onSuccess: () => {
-      // TODO: show success message
-      form.reset();
-    },
-    onError: () => {
-      // TODO: show error message
+    onSuccess: ({ data }) => {
+      // Only a genuinely delivered message clears the form; a "not configured"
+      // or send-failure result comes back as { success: false }.
+      if (data?.success) form.reset();
     },
   });
   const handleSubmit = form.handleSubmit(async (data: Schema) => {
     formAction.execute(data);
   });
 
-  const { isExecuting, hasSucceeded } = formAction;
-  if (hasSucceeded) {
+  const { isExecuting } = formAction;
+  const result = formAction.result.data;
+  const submitted = result?.success === true;
+  const errorMessage =
+    result?.success === false
+      ? result.message
+      : formAction.hasErrored
+        ? "Something went wrong. Please try again."
+        : null;
+
+  if (submitted) {
     return (
       <div className="w-full gap-2 rounded-md border p-2 sm:p-5 md:p-8">
         <motion.div
@@ -95,6 +102,14 @@ export function ContactForm() {
         onSubmit={handleSubmit}
         className="flex w-full flex-col gap-2 space-y-4 rounded-md"
       >
+        {errorMessage && (
+          <div
+            role="alert"
+            className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-sm"
+          >
+            {errorMessage}
+          </div>
+        )}
         <FormField
           control={form.control}
           name="name"

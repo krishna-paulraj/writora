@@ -57,4 +57,8 @@ ENV NODE_ENV=production \
 EXPOSE 4000
 
 # Apply pending migrations before starting. `exec` so signals propagate to node.
+# NOTE: with multiple replicas each container runs this on boot, so they race on
+# the same DB. `prisma migrate deploy` takes a Postgres advisory lock, so the
+# losers wait rather than double-apply — safe, but if you scale out consider
+# moving migrations to a dedicated release/init step instead of every container.
 CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && exec node dist/src/main.js"]

@@ -115,7 +115,7 @@ model Category {
   name      String
   slug      String
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   siteId    String
   site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
@@ -140,8 +140,13 @@ model Blog {
   publishedAt    DateTime?
   scheduledAt    DateTime?
   newsletterSent Boolean     @default(false)
+  // Set once publishDuePosts has fanned out all post-publish side-effects
+  // (newsletter, webhooks, CMS cross-post, embedding, notifications). NULL on a
+  // published post means a crash interrupted the fan-out; the scheduler
+  // reconciles those rows so side-effects are never silently dropped.
+  sideEffectsDispatchedAt DateTime?
   authorId       String
-  author         User        @relation(fields: [authorId], references: [id])
+  author         User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
   siteId         String
   site           Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   createdAt      DateTime    @default(now())
@@ -157,6 +162,9 @@ model Blog {
   @@unique([siteId, slug])
   @@index([scheduledAt])
   @@index([siteId])
+  // Serves the published-sitemap scan (findAllPublishedForSitemap) and the
+  // side-effect reconciliation query (published rows with a stale dispatch).
+  @@index([published, updatedAt])
 }
 
 // A single cross-site backlink: post `fromBlog` links to post `toBlog`. The

@@ -12,12 +12,10 @@ export class AnalyticsController {
   // Public: track a view (deduped per IP per 24h by the service)
   @Post('track/:blogId')
   trackView(@Param('blogId') blogId: string, @Req() req: express.Request) {
-    const fwd = req.headers['x-forwarded-for'];
-    const ip =
-      (typeof fwd === 'string' ? fwd.split(',')[0].trim() : undefined) ||
-      req.ip ||
-      req.socket?.remoteAddress ||
-      'unknown';
+    // Use the trusted client IP resolved by Express (trust proxy is configured
+    // in main.ts) — never the raw x-forwarded-for header, which a client can
+    // spoof to evade the per-IP dedup and inflate view counts.
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     return this.analyticsService.trackView(blogId, ip);
   }
 

@@ -219,20 +219,23 @@ export class AiService {
     const client = this.ensureClient();
     const prompt = buildEditPrompt(action, this.truncate(text), tone);
 
-    const stream = await client.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a skilled writing assistant. Respond with the edited text only — no preamble, no explanation, no quotes around the result.',
-        },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: MAX_OUTPUT_TOKENS,
-      temperature: 0.7,
-      stream: true,
-    });
+    const stream = await client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a skilled writing assistant. Respond with the edited text only — no preamble, no explanation, no quotes around the result.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        max_tokens: MAX_OUTPUT_TOKENS,
+        temperature: 0.7,
+        stream: true,
+      },
+      { timeout: PER_CALL_TIMEOUT_MS },
+    );
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content;
@@ -250,23 +253,26 @@ export class AiService {
       .replace(/\s+/g, ' ')
       .trim();
 
-    const res = await client.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You generate compelling blog post titles. Respond with a JSON object: {"titles": ["title 1", "title 2", "title 3", "title 4", "title 5"]}. No other text.',
-        },
-        {
-          role: 'user',
-          content: `Generate 5 specific, intriguing, SEO-friendly titles for this content. Avoid clickbait. Each under 70 characters.\n\nContent:\n${this.truncate(stripped)}`,
-        },
-      ],
-      max_tokens: 400,
-      temperature: 0.8,
-      response_format: { type: 'json_object' },
-    });
+    const res = await client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You generate compelling blog post titles. Respond with a JSON object: {"titles": ["title 1", "title 2", "title 3", "title 4", "title 5"]}. No other text.',
+          },
+          {
+            role: 'user',
+            content: `Generate 5 specific, intriguing, SEO-friendly titles for this content. Avoid clickbait. Each under 70 characters.\n\nContent:\n${this.truncate(stripped)}`,
+          },
+        ],
+        max_tokens: 400,
+        temperature: 0.8,
+        response_format: { type: 'json_object' },
+      },
+      { timeout: PER_CALL_TIMEOUT_MS },
+    );
 
     const raw = res.choices[0]?.message?.content || '{}';
     try {
@@ -291,22 +297,25 @@ export class AiService {
       .replace(/\s+/g, ' ')
       .trim();
 
-    const res = await client.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You write concise meta descriptions for blog posts. Return ONLY the description — no preamble, no quotes.',
-        },
-        {
-          role: 'user',
-          content: `Write a 1-2 sentence description for this blog post, under 160 characters. Make it specific and inviting.\n\nContent:\n${this.truncate(stripped)}`,
-        },
-      ],
-      max_tokens: 120,
-      temperature: 0.6,
-    });
+    const res = await client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You write concise meta descriptions for blog posts. Return ONLY the description — no preamble, no quotes.',
+          },
+          {
+            role: 'user',
+            content: `Write a 1-2 sentence description for this blog post, under 160 characters. Make it specific and inviting.\n\nContent:\n${this.truncate(stripped)}`,
+          },
+        ],
+        max_tokens: 120,
+        temperature: 0.6,
+      },
+      { timeout: PER_CALL_TIMEOUT_MS },
+    );
 
     return (res.choices[0]?.message?.content || '').trim();
   }
@@ -329,22 +338,25 @@ export class AiService {
       ? `Title: ${title}\nSummary: ${input.description.trim()}`
       : `Title: ${title}`;
 
-    const res = await client.chat.completions.create({
-      model: this.model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You write punchy tweets that make people want to click through to a blog post. Return ONLY the tweet text — no preamble, no surrounding quotes — and do NOT include any link or URL (it is appended separately). At most one tasteful hashtag, and only if it reads naturally.',
-        },
-        {
-          role: 'user',
-          content: `Write a single tweet (strictly under ${input.maxChars} characters) promoting this post. Hook the reader; don't just restate the title.\n\n${this.truncate(context)}`,
-        },
-      ],
-      max_tokens: 160,
-      temperature: 0.8,
-    });
+    const res = await client.chat.completions.create(
+      {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You write punchy tweets that make people want to click through to a blog post. Return ONLY the tweet text — no preamble, no surrounding quotes — and do NOT include any link or URL (it is appended separately). At most one tasteful hashtag, and only if it reads naturally.',
+          },
+          {
+            role: 'user',
+            content: `Write a single tweet (strictly under ${input.maxChars} characters) promoting this post. Hook the reader; don't just restate the title.\n\n${this.truncate(context)}`,
+          },
+        ],
+        max_tokens: 160,
+        temperature: 0.8,
+      },
+      { timeout: PER_CALL_TIMEOUT_MS },
+    );
 
     return (res.choices[0]?.message?.content || '').trim();
   }

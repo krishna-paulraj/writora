@@ -20,3 +20,16 @@ overrides:
   "@types/react-dom": "19.2.2"
   "react": "19.2.0"
   "react-dom": "19.2.0"
+  # Force multer >=2.2.0 to patch GHSA-72gw-mp4g-v24j (DoS via deeply nested
+  # field names). @nestjs/platform-express@11.1.x already ships multer 2.x, so
+  # this is a safe minor bump from 2.0.2.
+  "multer": "^2.2.0"
+  # Patch hono CORS advisory GHSA-88fw-hqm2-52qc. Only reached transitively via
+  # prisma's dev server (@prisma/dev), never at production runtime, but pinned
+  # so `pnpm audit` stays clean.
+  "hono": "^4.12.25"
+  # Build-time tooling patches: postcss GHSA (XSS via unescaped </style>) and
+  # js-yaml GHSA-h67p-54hq-rp68 (quadratic-complexity DoS in merge keys). Both
+  # are transitive under next/shadcn and only run at build time.
+  "postcss": "^8.5.16"
+  "js-yaml": "^4.2.0"

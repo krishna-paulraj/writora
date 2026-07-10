@@ -13,7 +13,11 @@ import { CryptoService } from '../crypto/crypto.service';
 import { WordPressAdapter } from './adapters/wordpress.adapter';
 import { DevtoAdapter } from './adapters/devto.adapter';
 import { XAdapter } from './adapters/x.adapter';
-import { PublishAdapter, PublishBlogInput } from './adapters/types';
+import {
+  PublishAdapter,
+  PublishBlogInput,
+  PublishResult,
+} from './adapters/types';
 import { CreateTargetDto } from './dto/create-target.dto';
 import { UpdateTargetDto } from './dto/update-target.dto';
 import {
@@ -255,7 +259,9 @@ export class PublishService {
       if (targets.length === 0) return;
 
       for (const target of targets) {
-        await this.publishToTarget(target, blog); // never throws (see below)
+        // Queue consumer: redelivered at least once, so reserve the record row
+        // before the remote call to keep the fanout idempotent under redelivery.
+        await this.publishToTarget(target, blog, { reserve: true }); // never throws (see below)
       }
     } catch (err) {
       this.logger.warn(
@@ -273,11 +279,35 @@ export class PublishService {
    * PublishRecord. The prior external id is handed to the adapter so the remote
    * post is UPDATED rather than duplicated. Records failures instead of letting
    * them bubble, so a multi-target publish doesn't abort partway.
+   *
+   * `reserve` is set on the queue-consumer (auto-fanout) path, which is
+   * redelivered at least once: it writes an intent row BEFORE the remote call so
+   * a redelivery finds the (target, blog) row — with any prior externalId — and
+   * updates the remote post instead of re-creating it. WordPress self-dedupes by
+   * writoraBlogId, so this only matters for Dev.to / X. (A hard crash strictly
+   * between the remote create and persisting its id can't be recovered from this
+   * service alone — that residual window needs an adapter-level idempotency key,
+   * which lives outside this file.) The manual path isn't queue-redelivered, so
+   * it skips the reservation.
+   *
+   * Note (REL-3): the success path's only authoritative write is the
+   * PublishRecord upsert; the destination-status update and notification are
+   * best-effort bookkeeping done AFTER it (never the network call inside a
+   * transaction), so a $transaction buys no useful atomicity here and is
+   * deliberately not used.
    */
   private async publishToTarget(
     target: PublishTarget,
     blog: BlogWithAuthor,
+    opts: { reserve?: boolean } = {},
   ): Promise<PublishRecord> {
+    const where = {
+      targetId_blogId: { targetId: target.id, blogId: blog.id },
+    };
+    // Set once the remote post is actually created, so a *subsequent* DB-write
+    // failure can still persist its real id (a redelivery then updates, not
+    // duplicates) rather than recording a blank failure.
+    let result: PublishResult | null = null;
     try {
       // Everything that can throw (unknown platform, credential decrypt,
       // record lookup, the network publish) lives in the try so a single bad
@@ -286,9 +316,18 @@ export class PublishService {
       const creds = this.crypto.decryptJson<Record<string, unknown>>(
         target.credentials,
       );
-      const existing = await this.prisma.publishRecord.findUnique({
-        where: { targetId_blogId: { targetId: target.id, blogId: blog.id } },
-      });
+      const existing = await this.prisma.publishRecord.findUnique({ where });
+
+      // Reserve the row before the remote call on the redelivery-prone path.
+      // `update: {}` is intentional: an existing row (and its externalId) is
+      // left untouched — we only want an intent marker when none exists yet.
+      if (opts.reserve) {
+        await this.prisma.publishRecord.upsert({
+          where,
+          create: { targetId: target.id, blogId: blog.id, status: 'pending' },
+          update: {},
+        });
+      }
 
       const input: PublishBlogInput = {
         blogId: blog.id,
@@ -302,9 +341,9 @@ export class PublishService {
         existingExternalId: existing?.externalId ?? null,
       };
 
-      const result = await adapter.publish(creds, input);
+      result = await adapter.publish(creds, input);
       const record = await this.prisma.publishRecord.upsert({
-        where: { targetId_blogId: { targetId: target.id, blogId: blog.id } },
+        where,
         create: {
           targetId: target.id,
           blogId: blog.id,
@@ -320,10 +359,9 @@ export class PublishService {
           error: null,
         },
       });
-      await this.prisma.publishTarget.update({
-        where: { id: target.id },
-        data: { lastPublishAt: new Date(), lastStatus: 'ok', lastError: null },
-      });
+      // Best-effort: a failure here must not flip a live cross-post into a
+      // recorded failure (which would re-run publish on the next attempt).
+      await this.markTarget(target.id, 'ok', null);
       await this.notifications.emit(target.userId, {
         type: NotificationType.PublishSuccess,
         title: `Published to ${target.name}`,
@@ -341,33 +379,114 @@ export class PublishService {
         0,
         500,
       );
-      const record = await this.prisma.publishRecord.upsert({
-        where: { targetId_blogId: { targetId: target.id, blogId: blog.id } },
-        create: {
-          targetId: target.id,
-          blogId: blog.id,
-          status: 'failed',
-          error: message,
-        },
-        update: { status: 'failed', error: message },
-      });
-      await this.prisma.publishTarget.update({
-        where: { id: target.id },
-        data: {
-          lastPublishAt: new Date(),
-          lastStatus: 'error',
-          lastError: message,
-        },
-      });
-      await this.notifications.emit(target.userId, {
-        type: NotificationType.PublishFailed,
-        title: `Couldn’t publish to ${target.name}`,
-        body: `“${blog.title}” failed to publish: ${message}`,
-        link: '/destinations',
-        meta: { blogId: blog.id, targetId: target.id },
-      });
-      return record;
+      // Guard the failure-recording writes: if the DB is the failing dependency
+      // these throw too, and an unguarded throw here would abort the sibling
+      // targets still to be published in the caller's loop.
+      try {
+        if (result) {
+          // The remote post was created — only a later DB write failed. Persist
+          // the real id as a success so a redelivery UPDATEs it (no duplicate).
+          const record = await this.prisma.publishRecord.upsert({
+            where,
+            create: {
+              targetId: target.id,
+              blogId: blog.id,
+              status: 'success',
+              externalId: result.externalId,
+              externalUrl: result.externalUrl,
+              error: null,
+            },
+            update: {
+              status: 'success',
+              externalId: result.externalId,
+              externalUrl: result.externalUrl,
+              error: null,
+            },
+          });
+          await this.markTarget(target.id, 'ok', null);
+          return record;
+        }
+        const record = await this.prisma.publishRecord.upsert({
+          where,
+          create: {
+            targetId: target.id,
+            blogId: blog.id,
+            status: 'failed',
+            error: message,
+          },
+          update: { status: 'failed', error: message },
+        });
+        await this.markTarget(target.id, 'error', message);
+        await this.notifications.emit(target.userId, {
+          type: NotificationType.PublishFailed,
+          title: `Couldn’t publish to ${target.name}`,
+          body: `“${blog.title}” failed to publish: ${message}`,
+          link: '/destinations',
+          meta: { blogId: blog.id, targetId: target.id },
+        });
+        return record;
+      } catch (recordErr) {
+        // A secondary DB failure while recording the outcome must not propagate
+        // and abort the remaining targets. Log and return an in-memory record.
+        this.logger.error(
+          `failed to record publish outcome for target ${target.id}/blog ${
+            blog.id
+          }: ${
+            recordErr instanceof Error ? recordErr.message : String(recordErr)
+          }`,
+        );
+        return this.syntheticRecord(target.id, blog.id, result, message);
+      }
     }
+  }
+
+  /**
+   * Best-effort destination-status bookkeeping. A failure here is logged and
+   * swallowed so it can neither flip a successful publish into a recorded
+   * failure nor abort the sibling targets in a multi-target run.
+   */
+  private async markTarget(
+    targetId: string,
+    status: 'ok' | 'error',
+    error: string | null,
+  ): Promise<void> {
+    try {
+      await this.prisma.publishTarget.update({
+        where: { id: targetId },
+        data: { lastPublishAt: new Date(), lastStatus: status, lastError: error },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `failed to update destination status for target ${targetId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * In-memory PublishRecord returned when even the failure-recording write
+   * fails, so the caller's loop still gets a value instead of the whole
+   * multi-target publish aborting.
+   */
+  private syntheticRecord(
+    targetId: string,
+    blogId: string,
+    result: PublishResult | null,
+    message: string,
+  ): PublishRecord {
+    const now = new Date();
+    return {
+      id: '',
+      targetId,
+      blogId,
+      status: result ? 'success' : 'failed',
+      externalId: result?.externalId ?? null,
+      externalUrl: result?.externalUrl ?? null,
+      error: result ? null : message,
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 
   private async loadOwnedBlog(

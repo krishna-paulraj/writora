@@ -46,6 +46,22 @@ interface CmsPublishEvent {
   authorId: string;
 }
 
+// The minimal fields the post-publish side-effect fan-out needs. Shared by the
+// live publish loop and the crash-recovery reconciler so both dispatch the same
+// set of effects in the same order.
+interface PublishablePost {
+  id: string;
+  title: string;
+  authorId: string;
+  newsletterSent: boolean;
+}
+
+// How long a published post may sit with sideEffectsDispatchedAt=NULL before the
+// reconciler assumes its fan-out crashed and re-runs it. Long enough that a
+// normal in-flight dispatch finishes first (avoiding a redundant re-fire),
+// short enough that a genuinely dropped one recovers within a couple of ticks.
+const SIDE_EFFECT_GRACE_MS = 2 * 60 * 1000;
+
 const SITEMAP_KEY = 'blog:sitemap:all';
 const PUBLIC_LIST_TTL = 60;
 const PUBLIC_DETAIL_TTL = 60;
@@ -329,7 +345,6 @@ export class BlogService implements OnModuleInit {
       where: { published: false, scheduledAt: { lte: now } },
       select: { id: true, title: true, authorId: true, newsletterSent: true },
     });
-    if (due.length === 0) return 0;
 
     let publishedCount = 0;
     for (const post of due) {
@@ -348,40 +363,122 @@ export class BlogService implements OnModuleInit {
       if (claimed.count !== 1) continue; // lost the race to another replica
       publishedCount++;
 
-      if (!post.newsletterSent) {
-        await this.queue.enqueue<NewsletterJob>(NEWSLETTER_QUEUE, {
-          blogId: post.id,
+      // Fan out side-effects, THEN stamp sideEffectsDispatchedAt. The stamp is a
+      // separate write on purpose: a crash between the claim commit and this
+      // point leaves the row published=true / sideEffectsDispatchedAt=NULL, which
+      // the reconciler below picks up and retries. Keep the loop alive on a
+      // per-post failure so one bad post doesn't strand the rest.
+      try {
+        await this.dispatchPublishSideEffects(post);
+        await this.prisma.blog.update({
+          where: { id: post.id },
+          data: { sideEffectsDispatchedAt: new Date() },
         });
+      } catch (err) {
+        // Leave sideEffectsDispatchedAt NULL so the reconciler retries the
+        // fan-out on a later tick.
+        this.logger.error(
+          `side-effect dispatch failed for ${post.id}: ${err instanceof Error ? err.message : err}`,
+        );
       }
-      // Outbound webhook fanout for scheduled-publish path
-      await this.queue.enqueue<WebhookPublishedEvent>(
-        WEBHOOK_BLOG_PUBLISHED_QUEUE,
-        { blogId: post.id, authorId: post.authorId },
-      );
-      // CMS auto cross-post fanout for scheduled-publish path
-      await this.queue.enqueue<CmsPublishEvent>(CMS_PUBLISH_FANOUT_QUEUE, {
-        blogId: post.id,
-        authorId: post.authorId,
-      });
-      // (Re)embed the now-live post for similarity/network matching, then earn
-      // inbound network backlinks.
-      await this.blogEmbeddings.enqueue(post.id);
-      await this.backfill.enqueue(post.id);
-      // Notify the author their scheduled post went live (they weren't watching).
-      await this.notifications.emit(post.authorId, {
-        type: NotificationType.BlogPublished,
-        title: `Scheduled post published: ${post.title}`,
-        body: 'Your scheduled post is now live.',
-        link: '/blogs',
-        meta: { blogId: post.id },
-      });
-      await this.invalidateAuthorCache(post.authorId);
     }
 
     if (publishedCount > 0) {
       this.logger.log(`autopublished ${publishedCount} scheduled post(s)`);
     }
+
+    // Crash-recovery: re-fan-out side-effects for posts published on an earlier
+    // tick whose dispatch was interrupted. Runs every tick regardless of whether
+    // any posts were due this minute — the steady state is exactly when a
+    // previously-dropped fan-out needs recovering.
+    await this.reconcilePublishSideEffects();
+
     return publishedCount;
+  }
+
+  /**
+   * Enqueues the full post-publish side-effect fan-out (newsletter, outbound
+   * webhook, CMS cross-post, embedding, backlink backfill, author notification)
+   * and busts the author cache. Every effect is idempotent by design, so this is
+   * safe to invoke more than once for the same post: newsletter is guarded by
+   * newsletterSent, embeddings skip via contentHash, CMS upserts by
+   * PublishRecord; webhook/notification re-fires are at-least-once. Message and
+   * event shapes are unchanged from the inline publish path.
+   */
+  private async dispatchPublishSideEffects(
+    post: PublishablePost,
+  ): Promise<void> {
+    if (!post.newsletterSent) {
+      await this.queue.enqueue<NewsletterJob>(NEWSLETTER_QUEUE, {
+        blogId: post.id,
+      });
+    }
+    // Outbound webhook fanout for scheduled-publish path
+    await this.queue.enqueue<WebhookPublishedEvent>(
+      WEBHOOK_BLOG_PUBLISHED_QUEUE,
+      { blogId: post.id, authorId: post.authorId },
+    );
+    // CMS auto cross-post fanout for scheduled-publish path
+    await this.queue.enqueue<CmsPublishEvent>(CMS_PUBLISH_FANOUT_QUEUE, {
+      blogId: post.id,
+      authorId: post.authorId,
+    });
+    // (Re)embed the now-live post for similarity/network matching, then earn
+    // inbound network backlinks.
+    await this.blogEmbeddings.enqueue(post.id);
+    await this.backfill.enqueue(post.id);
+    // Notify the author their scheduled post went live (they weren't watching).
+    await this.notifications.emit(post.authorId, {
+      type: NotificationType.BlogPublished,
+      title: `Scheduled post published: ${post.title}`,
+      body: 'Your scheduled post is now live.',
+      link: '/blogs',
+      meta: { blogId: post.id },
+    });
+    await this.invalidateAuthorCache(post.authorId);
+  }
+
+  /**
+   * Reconciliation pass for durability of publish side-effects (REL-1). A hard
+   * crash between committing the publish (published=true) and fanning out the
+   * side-effects would otherwise drop them forever — the normal re-pick query
+   * filters published=false. This finds rows that went live long enough ago to
+   * be past the grace window but still carry sideEffectsDispatchedAt=NULL,
+   * re-runs the (idempotent) fan-out, and stamps them. A per-post failure is
+   * logged and left NULL so a later tick retries.
+   */
+  private async reconcilePublishSideEffects(): Promise<void> {
+    const cutoff = new Date(Date.now() - SIDE_EFFECT_GRACE_MS);
+    const stale = await this.prisma.blog.findMany({
+      where: {
+        published: true,
+        sideEffectsDispatchedAt: null,
+        publishedAt: { lte: cutoff },
+      },
+      select: { id: true, title: true, authorId: true, newsletterSent: true },
+    });
+    if (stale.length === 0) return;
+
+    let recovered = 0;
+    for (const post of stale) {
+      try {
+        await this.dispatchPublishSideEffects(post);
+        await this.prisma.blog.update({
+          where: { id: post.id },
+          data: { sideEffectsDispatchedAt: new Date() },
+        });
+        recovered++;
+      } catch (err) {
+        // Leave sideEffectsDispatchedAt NULL so a later tick retries.
+        this.logger.error(
+          `side-effect reconcile failed for ${post.id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    if (recovered > 0) {
+      this.logger.log(`reconciled dropped side-effects for ${recovered} post(s)`);
+    }
   }
 
   private async sendNewsletterBlast(blogId: string): Promise<void> {
@@ -392,6 +489,11 @@ export class BlogService implements OnModuleInit {
       },
     });
     if (!blog || !blog.published) return;
+    // Idempotency guard: a queue redelivery (crash/nack after the first run
+    // completed) would otherwise re-email every already-notified subscriber.
+    // newsletterSent is stamped at the end of the loop below, so once the first
+    // blast finished a redelivered job is a no-op.
+    if (blog.newsletterSent) return;
 
     const subscribers = await this.prisma.subscriber.findMany({
       where: { siteId: blog.siteId, confirmedAt: { not: null } },

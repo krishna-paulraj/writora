@@ -149,7 +149,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     const registration: RegisteredHandler = {
       queue,
       prefetch: opts.prefetch ?? 1,
-      handler: handler,
+      // Payloads arrive as JSON (deserialized to `unknown`), so wrap the typed
+      // handler at the boundary rather than assigning Handler<T> to
+      // Handler<unknown> — the latter is unsound under strictFunctionTypes.
+      handler: (payload: unknown) => handler(payload as T),
     };
     this.consumers.push(registration);
     if (this.url) {
@@ -176,10 +179,13 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
           this.logger.error(
             `consumer ${reg.queue} failed: ${err instanceof Error ? err.message : err}`,
           );
-          // Re-queue once with a tiny delay; if it fails again, drop to dead-letter.
-          // Without DLX configured, redelivered=true messages get nack-and-drop here.
+          // Re-queue once with a tiny delay; on a second failure move the
+          // payload to a durable dead-letter queue so it is never silently
+          // lost. (No broker DLX is configured, so we self-publish instead of
+          // relying on x-dead-letter-exchange — which would require recreating
+          // the existing queues.)
           if (msg.fields.redelivered) {
-            channel.nack(msg, false, false);
+            await this.deadLetter(channel, reg.queue, msg);
           } else {
             setTimeout(() => channel.nack(msg, false, true), 1000);
           }
@@ -187,6 +193,46 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       })();
     });
     this.logger.log(`consuming ${reg.queue}`);
+  }
+
+  /**
+   * Move a message that has already failed twice to a durable dead-letter queue
+   * (`<queue>.dead`) so its payload survives instead of being nack-and-dropped,
+   * then ack the original once it is safely copied. If the copy itself fails we
+   * log the full payload before dropping so it can still be recovered.
+   */
+  private async deadLetter(
+    channel: amqp.Channel,
+    queue: string,
+    msg: amqp.ConsumeMessage,
+  ): Promise<void> {
+    const deadQueue = `${queue}.dead`;
+    try {
+      await channel.assertQueue(deadQueue, { durable: true });
+      channel.sendToQueue(deadQueue, msg.content, {
+        persistent: true,
+        contentType: msg.properties.contentType ?? 'application/json',
+        headers: {
+          ...(msg.properties.headers ?? {}),
+          'x-death-origin': queue,
+          'x-death-reason': 'retries-exhausted',
+          'x-death-at': new Date().toISOString(),
+        },
+      });
+      channel.ack(msg);
+      this.logger.warn(
+        `dead-lettered message from ${queue} to ${deadQueue} after repeated failure`,
+      );
+    } catch (err) {
+      // Could not persist to the dead-letter queue — drop it, but log the full
+      // payload at error level so it is at least durably recorded.
+      this.logger.error(
+        `failed to dead-letter ${queue} message (${
+          err instanceof Error ? err.message : String(err)
+        }) — dropping after logging payload: ${msg.content.toString()}`,
+      );
+      channel.nack(msg, false, false);
+    }
   }
 
   private async runInline<T>(queue: string, payload: T): Promise<void> {

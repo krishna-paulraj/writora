@@ -31,10 +31,11 @@ import { NetworkModule } from './network/network.module';
 import { BacklinkModule } from './backlink/backlink.module';
 import { InternalModule } from './internal/internal.module';
 import { RedisThrottlerStorage } from './cache/redis-throttler.storage';
+import { validate } from './config/env.validation';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate }),
     ScheduleModule.forRoot(),
     PrismaModule,
     CacheModule,

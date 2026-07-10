@@ -70,6 +70,12 @@ services:
       - key: SITE_URL
         sync: false
 
+      # --- Encryption (at-rest third-party credentials) ---
+      # 32 bytes as 64 hex chars or base64 — generate with `openssl rand -hex 32`.
+      # If set it MUST be valid or the API refuses to boot.
+      - key: ENCRYPTION_KEY
+        sync: false
+
       # --- Object storage (Cloudflare R2 / S3) ---
       - key: S3_BUCKET
         sync: false
@@ -110,4 +116,14 @@ services:
       - key: DATAFORSEO_LOGIN
         sync: false
       - key: DATAFORSEO_PASSWORD
+        sync: false
+
+      # --- Billing (Stripe, optional) ---
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_PRO # price_... ID for the Pro plan
+        sync: false
+      - key: STRIPE_PRICE_BUSINESS # price_... ID for the Business plan
         sync: false

@@ -19,6 +19,12 @@ define('WRITORA_BLOG_ID_META', '_writora_blog_id');
 define('WRITORA_CANONICAL_META', '_writora_canonical');
 define('WRITORA_FEATURED_SRC_META', '_writora_featured_src');
 
+// Upper bounds on the incoming payload so a single accepted call can't insert
+// an unbounded amount of content or spam the taxonomy with junk terms.
+define('WRITORA_MAX_TITLE_LEN', 300);
+define('WRITORA_MAX_HTML_BYTES', 512000); // ~500 KB of post HTML.
+define('WRITORA_MAX_CATEGORY_LEN', 80);
+
 /**
  * Generate a connection token on activation (once). The user copies this into
  * Writora; requests must present it as the X-Writora-Token header.
@@ -86,10 +92,24 @@ function writora_rest_publish(WP_REST_Request $request) {
 
     $writora_blog_id = isset($body['writoraBlogId']) ? sanitize_text_field($body['writoraBlogId']) : '';
     $title           = isset($body['title']) ? sanitize_text_field($body['title']) : '';
-    $html            = isset($body['html']) ? $body['html'] : '';
+    $html            = (isset($body['html']) && is_string($body['html'])) ? $body['html'] : '';
     if ($writora_blog_id === '' || $title === '' || $html === '') {
         return new WP_Error('writora_bad_request', 'writoraBlogId, title and html are required', array('status' => 400));
     }
+
+    // Bound the payload before doing any work so a single call can't drive an
+    // unbounded insert. Oversized HTML is rejected; an overlong title is capped.
+    if (strlen($html) > WRITORA_MAX_HTML_BYTES) {
+        return new WP_Error('writora_payload_too_large', 'html exceeds the maximum allowed size', array('status' => 413));
+    }
+    if (mb_strlen($title) > WRITORA_MAX_TITLE_LEN) {
+        $title = mb_substr($title, 0, WRITORA_MAX_TITLE_LEN);
+    }
+
+    // Own our sanitization instead of leaning on WordPress core's implicit kses
+    // backstop: strip anything wp_kses_post() deems unsafe for post_content,
+    // regardless of what the caller claims to have already sanitized.
+    $html = wp_kses_post($html);
 
     $slug         = isset($body['slug']) ? sanitize_title($body['slug']) : '';
     $excerpt      = isset($body['excerpt']) ? sanitize_text_field($body['excerpt']) : '';
@@ -110,7 +130,7 @@ function writora_rest_publish(WP_REST_Request $request) {
 
     $postarr = array(
         'post_title'   => $title,
-        'post_content' => $html, // Writora sends sanitized HTML.
+        'post_content' => $html, // Sanitized above via wp_kses_post().
         'post_excerpt' => $excerpt,
         'post_status'  => $status,
         'post_type'    => 'post',
@@ -138,11 +158,14 @@ function writora_rest_publish(WP_REST_Request $request) {
     if ($category !== '') {
         // wp_create_category() lives in wp-admin and isn't loaded for REST
         // requests, so use the always-available term functions instead.
+        // Prefer mapping to an existing term; only mint a brand-new category
+        // when its (already sanitized) name is a reasonable length, so a caller
+        // can't spam the taxonomy with unlimited junk terms.
         $term = term_exists($category, 'category');
-        if (!$term) {
+        if (!$term && mb_strlen($category) <= WRITORA_MAX_CATEGORY_LEN) {
             $term = wp_insert_term($category, 'category');
         }
-        if (!is_wp_error($term)) {
+        if ($term && !is_wp_error($term)) {
             $cat_id = is_array($term) ? (int) $term['term_id'] : (int) $term;
             if ($cat_id > 0) {
                 wp_set_post_categories($post_id, array($cat_id));
@@ -150,9 +173,12 @@ function writora_rest_publish(WP_REST_Request $request) {
         }
     }
 
-    // wp_http_validate_url rejects private/loopback hosts and non-http(s)
-    // schemes, so a crafted featuredImageUrl can't SSRF this site.
-    if ($featured_src !== '' && wp_http_validate_url($featured_src)) {
+    // wp_http_validate_url() rejects some private hosts and non-http(s) schemes,
+    // but it does NOT block the cloud-metadata link-local range (169.254.0.0/16,
+    // e.g. 169.254.169.254) or IPv6 ULA/link-local, so it is not enough to stop
+    // SSRF on its own. writora_is_safe_remote_url() additionally resolves the
+    // host and rejects private/reserved addresses before we fetch anything.
+    if ($featured_src !== '' && writora_is_safe_remote_url($featured_src)) {
         writora_maybe_set_featured_image($post_id, $featured_src);
     }
 
@@ -182,6 +208,68 @@ function writora_maybe_set_featured_image($post_id, $src) {
     }
     set_post_thumbnail($post_id, $attachment_id);
     update_post_meta($post_id, WRITORA_FEATURED_SRC_META, $src);
+}
+
+/**
+ * Decide whether a remote URL is safe to fetch server-side.
+ *
+ * wp_http_validate_url() is a necessary first gate (allowed scheme, syntactic
+ * host), but it does NOT reject the cloud-metadata link-local range
+ * (169.254.0.0/16, including 169.254.169.254) or IPv6 ULA/link-local, so on its
+ * own it does not prevent SSRF. This helper additionally resolves the host and
+ * rejects the request if ANY resolved address falls in a private or reserved
+ * range: 169.254.0.0/16, 127.0.0.0/8, RFC1918, ::1, fc00::/7, fe80::/10, etc.
+ * It fails closed — an unparseable host or a host that resolves to nothing is
+ * treated as unsafe.
+ */
+function writora_is_safe_remote_url($url) {
+    if (!is_string($url) || $url === '' || !wp_http_validate_url($url)) {
+        return false;
+    }
+
+    $host = wp_parse_url($url, PHP_URL_HOST);
+    if (!is_string($host) || $host === '') {
+        return false;
+    }
+
+    // Strip brackets from an IPv6 literal host, e.g. "[::1]" -> "::1".
+    $host = trim($host, '[]');
+
+    // Gather every address the host maps to (or the literal IP itself).
+    $ips = array();
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        $ips[] = $host;
+    } else {
+        $ipv4 = gethostbynamel($host);
+        if (is_array($ipv4)) {
+            $ips = array_merge($ips, $ipv4);
+        }
+        $aaaa = @dns_get_record($host, DNS_AAAA);
+        if (is_array($aaaa)) {
+            foreach ($aaaa as $record) {
+                if (isset($record['ipv6']) && is_string($record['ipv6'])) {
+                    $ips[] = $record['ipv6'];
+                }
+            }
+        }
+    }
+
+    // Fail closed: if we couldn't resolve the host, treat it as unsafe.
+    if (empty($ips)) {
+        return false;
+    }
+
+    foreach ($ips as $ip) {
+        // FILTER_FLAG_NO_RES_RANGE covers 169.254.0.0/16, 127.0.0.0/8, ::1,
+        // fe80::/10 and other reserved ranges; FILTER_FLAG_NO_PRIV_RANGE covers
+        // 10/8, 172.16/12, 192.168/16 and fc00::/7. A false result means the
+        // address is private/reserved -> reject the whole URL.
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**

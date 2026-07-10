@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatDistanceToNow } from "date-fns";
 import {
   AlertTriangleIcon,
   BellIcon,
@@ -26,10 +27,16 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
-  timeAgo,
 } from "@/lib/notifications";
 
 const POLL_MS = 30_000;
+
+/** Relative "time ago" label, e.g. "5 minutes ago" (date-fns, not moment). */
+function formatTimeAgo(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "just now";
+  return formatDistanceToNow(date, { addSuffix: true });
+}
 
 type IconMeta = { Icon: typeof BellIcon; className: string };
 
@@ -219,7 +226,7 @@ export function NotificationInbox() {
                       {notification.body}
                     </p>
                     <p className="text-muted-foreground/60 text-xs">
-                      {timeAgo(notification.createdAt)}
+                      {formatTimeAgo(notification.createdAt)}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">

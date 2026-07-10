@@ -27,6 +27,10 @@ out/
 build
 dist
 
+# Stale `pnpm deploy` bundles (should never be committed)
+temp-deploy/
+apps/api/temp-deploy/
+
 
 # Debug
 npm-debug.log*
