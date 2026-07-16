@@ -22,6 +22,13 @@ export interface PublishResult {
 
 export interface PublishAdapter {
   readonly platform: string;
+  /**
+   * True when re-publishing without a known externalId can never duplicate the
+   * remote post (the adapter/remote dedupes by our blog id, like the WordPress
+   * connector). Platforms without this (Dev.to, X) must not blind-retry a
+   * create whose outcome is unknown.
+   */
+  readonly idempotentCreate: boolean;
   /** Throws BadRequestException when credentials are structurally invalid. */
   validate(creds: Record<string, unknown>): void;
   /** Lightweight connectivity + auth check. Never throws — returns ok/info. */

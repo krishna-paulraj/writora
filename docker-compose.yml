@@ -12,7 +12,10 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector build: the blog-embeddings migration runs `CREATE EXTENSION
+    # vector` (semantic related-posts + backlink matching), which stock
+    # postgres images can't satisfy — the api would crash-loop on boot.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: writora
@@ -81,6 +84,32 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-Writora <onboarding@resend.dev>}
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
+      # Cross-app URLs + CORS (defaults match the compose port mappings)
+      APP_URL: ${APP_URL:-http://localhost:3001}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      # AI article generation (features 503 gracefully when unset)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      # AI image generation (Recraft)
+      RECRAFT_API_KEY: ${RECRAFT_API_KEY:-}
+      RECRAFT_MODEL: ${RECRAFT_MODEL:-}
+      RECRAFT_API_URL: ${RECRAFT_API_URL:-}
+      # Keyword research (DataForSEO)
+      DATAFORSEO_LOGIN: ${DATAFORSEO_LOGIN:-}
+      DATAFORSEO_PASSWORD: ${DATAFORSEO_PASSWORD:-}
+      DATAFORSEO_LOCATION_CODE: ${DATAFORSEO_LOCATION_CODE:-}
+      DATAFORSEO_LANGUAGE_CODE: ${DATAFORSEO_LANGUAGE_CODE:-}
+      # CMS publish-out credential encryption (32-byte hex/base64 key)
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # Stripe billing (free tier works unkeyed)
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
+      STRIPE_PRICE_BUSINESS: ${STRIPE_PRICE_BUSINESS:-}
+      # External cron trigger (/internal/cron/tick) for sleep-prone hosts
+      CRON_SECRET: ${CRON_SECRET:-}
       # Object storage — leave blank to use local disk in the api volume
       S3_BUCKET: ${S3_BUCKET:-}
       S3_REGION: ${S3_REGION:-auto}
@@ -122,6 +151,10 @@ services:
       NODE_ENV: production
       # Used by middleware (proxy.ts) to verify the auth cookie
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (no insecure default)}
+      # Contact-form delivery (form reports "not configured" when unset)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      CONTACT_TO_EMAIL: ${CONTACT_TO_EMAIL:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     healthcheck:
       test:
         - CMD

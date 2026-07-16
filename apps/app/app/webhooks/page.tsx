@@ -74,20 +74,21 @@ export default function WebhooksPage() {
   const [adding, setAdding] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
 
-  const fetchAll = async () => {
-    try {
-      const [inRes, outRes] = await Promise.all([
-        fetch(`${API_URL}/webhooks/inbound`, { credentials: "include" }),
-        fetch(`${API_URL}/webhooks/outbound`, { credentials: "include" }),
-      ]);
-      if (inRes.ok) setInbound(await inRes.json());
-      if (outRes.ok) setEndpoints(await outRes.json());
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Promise-chain style so the effect below passes the set-state-in-effect
+  // lint rule (setState only ever runs in .then callbacks).
+  const fetchAll = () =>
+    Promise.all([
+      fetch(`${API_URL}/webhooks/inbound`, { credentials: "include" }),
+      fetch(`${API_URL}/webhooks/outbound`, { credentials: "include" }),
+    ])
+      .then(([inRes, outRes]) =>
+        Promise.all([
+          inRes.ok ? inRes.json().then(setInbound) : undefined,
+          outRes.ok ? outRes.json().then(setEndpoints) : undefined,
+        ]),
+      )
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
 
   useEffect(() => {
     fetchAll();

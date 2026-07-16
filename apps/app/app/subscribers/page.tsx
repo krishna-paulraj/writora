@@ -66,16 +66,13 @@ export default function SubscribersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  const fetchSubs = async () => {
-    try {
-      const res = await apiFetch(`/subscribers/me`);
-      if (res.ok) setData(await res.json());
-    } catch {
-      // ignore
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Promise-chain style so the effect below passes the set-state-in-effect
+  // lint rule (setState only ever runs in .then callbacks).
+  const fetchSubs = () =>
+    apiFetch(`/subscribers/me`)
+      .then((res) => (res.ok ? res.json().then(setData) : undefined))
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
 
   useEffect(() => {
     fetchSubs();

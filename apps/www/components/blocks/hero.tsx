@@ -1,11 +1,11 @@
-import Image from "next/image";
+import Link from "next/link";
 
 import {
   ArrowRight,
-  Blend,
-  ChartNoAxesColumn,
-  CircleDot,
-  Diamond,
+  CalendarClock,
+  Search,
+  Send,
+  Sparkles,
 } from "lucide-react";
 
 import { DashedLine } from "@/components/dashed-line";
@@ -13,24 +13,28 @@ import { Button } from "@/components/ui/button";
 
 const features = [
   {
-    title: "Tailored workflows",
-    description: "Track progress across custom issue flows for your team.",
-    icon: CircleDot,
+    title: "Keyword research",
+    description:
+      "Search volume and difficulty from DataForSEO, wired straight into generation.",
+    icon: Search,
   },
   {
-    title: "Cross-team projects",
-    description: "Collaborate across teams and departments.",
-    icon: Blend,
+    title: "AI articles",
+    description:
+      "Full drafts with SEO metadata, plus AI featured and inline images.",
+    icon: Sparkles,
   },
   {
-    title: "Milestones",
-    description: "Break projects down into concrete phases.",
-    icon: Diamond,
+    title: "Autopilot",
+    description:
+      "AI plans an article cluster, then writes and publishes on your cadence.",
+    icon: CalendarClock,
   },
   {
-    title: "Progress insights",
-    description: "Track scope, velocity, and progress over time.",
-    icon: ChartNoAxesColumn,
+    title: "Publish everywhere",
+    description:
+      "Your hosted blog, WordPress, Dev.to, and X auto-posts — from one editor.",
+    icon: Send,
   },
 ];
 
@@ -40,31 +44,28 @@ export const Hero = () => {
       <div className="container flex flex-col justify-between gap-8 md:gap-14 lg:flex-row lg:gap-20">
         {/* Left side - Main content */}
         <div className="flex-1">
-          <h1 className="text-foreground max-w-160 text-3xl tracking-tight md:text-4xl lg:text-5xl xl:whitespace-nowrap">
-            A blog you actually own
+          <h1 className="text-foreground max-w-160 text-3xl tracking-tight md:text-4xl lg:text-5xl">
+            The AI SEO content engine you can own
           </h1>
 
-          <p className="text-muted-foreground text-1xl mt-5 md:text-3xl">
-            Auto-generated schema, OG images, sitemaps, and AI-suggested titles
-            & meta descriptions.
+          <p className="text-muted-foreground mt-5 text-xl md:text-2xl">
+            Research keywords, generate articles with metadata and images, and
+            publish them everywhere — on a schedule you set.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-4 lg:flex-nowrap">
             <Button asChild>
-              <a href={`${process.env.NEXT_PUBLIC_APP_URL}`}>Get Started</a>
+              <Link href="/signup">Start for free</Link>
             </Button>
             <Button
               variant="outline"
               className="from-background h-auto gap-2 bg-linear-to-r to-transparent shadow-md"
               asChild
             >
-              <a
-                href="https://shadcnblocks.com"
-                className="max-w-56 truncate text-start md:max-w-none"
-              >
-                Start your free trial now
+              <Link href="/pricing">
+                See pricing
                 <ArrowRight className="stroke-3" />
-              </a>
+              </Link>
             </Button>
           </div>
         </div>
@@ -95,17 +96,6 @@ export const Hero = () => {
               </div>
             );
           })}
-        </div>
-      </div>
-
-      <div className="mt-12 max-lg:ml-6 max-lg:h-[550px] max-lg:overflow-hidden md:mt-20 lg:container lg:mt-24">
-        <div className="relative h-[793px] w-full">
-          <Image
-            src="/hero.webp"
-            alt="hero"
-            fill
-            className="rounded-2xl object-cover object-left-top shadow-lg max-lg:rounded-tr-none"
-          />
         </div>
       </div>
     </section>

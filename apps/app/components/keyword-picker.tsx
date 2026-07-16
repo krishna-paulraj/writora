@@ -214,7 +214,9 @@ export function KeywordPicker({
                       <TableCell>
                         <Button
                           size="sm"
-                          variant={target === kw.keyword ? "default" : "outline"}
+                          variant={
+                            target === kw.keyword ? "default" : "outline"
+                          }
                           onClick={() => chooseTarget(kw.keyword)}
                         >
                           {target === kw.keyword ? "Target" : "Set"}

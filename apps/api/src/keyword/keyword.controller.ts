@@ -11,6 +11,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 import { KeywordService } from './keyword.service';
 import { ResearchKeywordDto } from './dto/research-keyword.dto';
 import { SaveKeywordDto } from './dto/save-keyword.dto';
@@ -20,12 +21,18 @@ const HOUR = 60 * 60_000;
 @UseGuards(JwtAuthGuard)
 @Controller('keywords')
 export class KeywordController {
-  constructor(private keywords: KeywordService) {}
+  constructor(
+    private keywords: KeywordService,
+    private entitlements: EntitlementsService,
+  ) {}
 
-  // Each research call costs DataForSEO credits — cap hard (results cache 24h).
+  // Each research call costs DataForSEO credits — plan-gated (free tier has no
+  // keyword research) and capped hard (results cache 24h).
   @Throttle({ default: { limit: 20, ttl: HOUR } })
   @Post('research')
-  research(@Body() dto: ResearchKeywordDto) {
+  async research(@Req() req: Request, @Body() dto: ResearchKeywordDto) {
+    const user = req.user as { id: string };
+    await this.entitlements.assertKeywordResearch(user.id);
     return this.keywords.research(dto?.seed ?? '', {
       locationCode: dto?.locationCode,
       languageCode: dto?.languageCode,

@@ -229,7 +229,10 @@ describe('StripeService', () => {
             metadata: { userId: 'u1' },
             items: {
               data: [
-                { price: { id: 'price_pro' }, current_period_end: 1_700_000_000 },
+                {
+                  price: { id: 'price_pro' },
+                  current_period_end: 1_700_000_000,
+                },
               ],
             },
           },

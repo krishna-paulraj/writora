@@ -1,13 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmbeddingService } from '../embedding/embedding.service';
 import { EntitlementsService } from '../entitlements/entitlements.service';
 import { UpdateNetworkDto } from './dto/update-network.dto';
 
 @Injectable()
 export class NetworkService {
+  private readonly logger = new Logger(NetworkService.name);
+
   constructor(
     private prisma: PrismaService,
+    private embeddings: EmbeddingService,
     private entitlements: EntitlementsService,
   ) {}
 
@@ -40,7 +44,7 @@ export class NetworkService {
       update.maxOutboundPerPost = dto.maxOutboundPerPost;
     if (dto.niche !== undefined) update.niche = dto.niche?.trim() || null;
 
-    return this.prisma.networkMembership.upsert({
+    const membership = await this.prisma.networkMembership.upsert({
       where: { siteId },
       create: {
         siteId,
@@ -51,5 +55,43 @@ export class NetworkService {
       },
       update,
     });
+
+    if (dto.niche !== undefined) {
+      await this.refreshNicheEmbedding(siteId, membership.niche);
+    }
+    return membership;
+  }
+
+  /**
+   * Keep the niche's embedding in step with its text — it's what the backlink
+   * matcher gates on. Best-effort: with embeddings unconfigured (or the call
+   * failing) the column goes/stays NULL, which simply disables the gate for
+   * this site rather than blocking the save.
+   */
+  private async refreshNicheEmbedding(
+    siteId: string,
+    niche: string | null,
+  ): Promise<void> {
+    try {
+      const vector = niche ? await this.embeddings.embed(niche) : null;
+      if (vector) {
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE "NetworkMembership" SET "nicheEmbedding" = $1::vector WHERE "siteId" = $2`,
+          this.embeddings.toVectorLiteral(vector),
+          siteId,
+        );
+      } else {
+        await this.prisma.$executeRawUnsafe(
+          `UPDATE "NetworkMembership" SET "nicheEmbedding" = NULL WHERE "siteId" = $1`,
+          siteId,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `niche embedding refresh failed for site ${siteId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 }

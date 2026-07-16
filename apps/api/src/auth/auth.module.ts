@@ -6,7 +6,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { LocalStrategy } from './local.strategy';
-import { GoogleStrategy } from './google.strategy';
+import { GoogleStrategy, isGoogleAuthConfigured } from './google.strategy';
 
 @Module({
   imports: [
@@ -21,6 +21,18 @@ import { GoogleStrategy } from './google.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, LocalStrategy, GoogleStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    LocalStrategy,
+    // Constructing GoogleStrategy without its env vars makes passport throw at
+    // boot, so only build it when configured; GoogleAuthGuard 503s otherwise.
+    {
+      provide: GoogleStrategy,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        isGoogleAuthConfigured(config) ? new GoogleStrategy(config) : null,
+    },
+  ],
 })
 export class AuthModule {}

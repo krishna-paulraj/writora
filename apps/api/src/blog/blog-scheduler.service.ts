@@ -19,7 +19,7 @@ export class BlogSchedulerService {
       await this.blogService.publishDuePosts();
     } catch (err) {
       this.logger.error(
-        `publishDuePosts failed: ${err instanceof Error ? err.message : err}`,
+        `publishDuePosts failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
       this.running = false;

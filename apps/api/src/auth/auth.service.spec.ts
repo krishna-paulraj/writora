@@ -188,7 +188,7 @@ describe('AuthService', () => {
   });
 
   describe('generateToken', () => {
-    it('signs sub+email into the JWT payload', () => {
+    it('signs sub+email+token-version into the JWT payload', () => {
       const token = service.generateToken({
         id: 'u1',
         email: 'alice@example.com',
@@ -197,6 +197,20 @@ describe('AuthService', () => {
       expect(jwt.sign).toHaveBeenCalledWith({
         sub: 'u1',
         email: 'alice@example.com',
+        tv: 0,
+      });
+    });
+
+    it('signs the user tokenVersion so password resets invalidate old tokens', () => {
+      service.generateToken({
+        id: 'u1',
+        email: 'alice@example.com',
+        tokenVersion: 3,
+      });
+      expect(jwt.sign).toHaveBeenCalledWith({
+        sub: 'u1',
+        email: 'alice@example.com',
+        tv: 3,
       });
     });
   });

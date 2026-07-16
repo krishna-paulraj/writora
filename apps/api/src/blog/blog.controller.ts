@@ -17,6 +17,7 @@ import { SiteContextGuard } from '../site/site-context.guard';
 import { CurrentSite } from '../site/current-site.decorator';
 import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
+import { SetScheduleDto } from './dto/set-schedule.dto';
 
 @Controller('blogs')
 export class BlogController {
@@ -85,7 +86,7 @@ export class BlogController {
   setSchedule(
     @Req() req: express.Request,
     @Param('id') id: string,
-    @Body() body: { scheduledAt: string | null },
+    @Body() body: SetScheduleDto,
   ) {
     const user = req.user as { id: string };
     return this.blogService.setSchedule(id, user.id, body?.scheduledAt ?? null);

@@ -1,15 +1,20 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CacheService } from '../cache/cache.service';
 
 export type PlanName = 'free' | 'pro' | 'business';
 
 export interface PlanLimits {
   sites: number;
   aiArticlesPerMonth: number;
+  /** In-editor AI assists (edit/title/summarize) per day — cheap but not free. */
+  aiAssistsPerDay: number;
   autopilot: boolean;
   destinations: number;
   customDomain: boolean;
   backlinkNetwork: boolean;
+  /** DataForSEO-backed keyword research (each lookup costs provider credits). */
+  keywordResearch: boolean;
 }
 
 // Static plan→limits table. Limits live in code (not the DB); usage is counted
@@ -18,26 +23,32 @@ export const PLAN_LIMITS: Record<PlanName, PlanLimits> = {
   free: {
     sites: 1,
     aiArticlesPerMonth: 5,
+    aiAssistsPerDay: 50,
     autopilot: false,
     destinations: 0,
     customDomain: false,
     backlinkNetwork: false,
+    keywordResearch: false,
   },
   pro: {
     sites: 5,
     aiArticlesPerMonth: 100,
+    aiAssistsPerDay: 500,
     autopilot: true,
     destinations: 10,
     customDomain: true,
     backlinkNetwork: true,
+    keywordResearch: true,
   },
   business: {
     sites: 25,
     aiArticlesPerMonth: 1000,
+    aiAssistsPerDay: 2000,
     autopilot: true,
     destinations: 100,
     customDomain: true,
     backlinkNetwork: true,
+    keywordResearch: true,
   },
 };
 
@@ -57,7 +68,10 @@ function isEntitled(status: string | null | undefined): boolean {
 
 @Injectable()
 export class EntitlementsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cache: CacheService,
+  ) {}
 
   normalizePlan(plan: string | null | undefined): PlanName {
     return plan === 'pro' || plan === 'business' ? plan : 'free';
@@ -134,6 +148,38 @@ export class EntitlementsService {
     if (!this.limitsFor(await this.effectivePlan(userId)).backlinkNetwork) {
       throw new ForbiddenException(
         'The backlink network is not available on your plan. Upgrade to join.',
+      );
+    }
+  }
+
+  /** Keyword research spends DataForSEO credits — paid plans only. */
+  async assertKeywordResearch(userId: string): Promise<void> {
+    if (!this.limitsFor(await this.effectivePlan(userId)).keywordResearch) {
+      throw new ForbiddenException(
+        'Keyword research is not available on your plan. Upgrade to enable it.',
+      );
+    }
+  }
+
+  /**
+   * Meter one in-editor AI assist (edit/title/summarize) against the plan's
+   * daily allowance. These are cheap per call but real OpenAI spend, so they
+   * get a generous windowed counter instead of consuming monthly article
+   * slots. Without Redis the counter is unavailable and the call is allowed —
+   * self-hosters aren't forced to run Redis just for metering.
+   */
+  async assertAiAssist(userId: string): Promise<void> {
+    const limit = this.limitsFor(
+      await this.effectivePlan(userId),
+    ).aiAssistsPerDay;
+    const day = new Date().toISOString().slice(0, 10);
+    const count = await this.cache.incrWithTtl(
+      `ai:assist:${userId}:${day}`,
+      24 * 60 * 60,
+    );
+    if (count !== null && count > limit) {
+      throw new ForbiddenException(
+        'You have reached your daily AI assist limit. Try again tomorrow or upgrade.',
       );
     }
   }

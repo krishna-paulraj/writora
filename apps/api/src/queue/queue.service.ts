@@ -82,7 +82,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         this.logger.log('rabbit connected');
       } catch (err) {
         this.logger.error(
-          `rabbit connect failed: ${err instanceof Error ? err.message : err}`,
+          `rabbit connect failed: ${err instanceof Error ? err.message : String(err)}`,
         );
         this.connection = null;
         this.publishChannel = null;
@@ -101,7 +101,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         await this.startConsumer(reg);
       } catch (err) {
         this.logger.warn(
-          `rebind ${reg.queue} failed: ${err instanceof Error ? err.message : err}`,
+          `rebind ${reg.queue} failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -131,7 +131,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (err) {
       this.logger.warn(
-        `enqueue ${queue} failed: ${err instanceof Error ? err.message : err} — running inline`,
+        `enqueue ${queue} failed: ${err instanceof Error ? err.message : String(err)} — running inline`,
       );
       await this.runInline(queue, payload);
     }
@@ -177,7 +177,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
           return;
         } catch (err) {
           this.logger.error(
-            `consumer ${reg.queue} failed: ${err instanceof Error ? err.message : err}`,
+            `consumer ${reg.queue} failed: ${err instanceof Error ? err.message : String(err)}`,
           );
           // Re-queue once with a tiny delay; on a second failure move the
           // payload to a durable dead-letter queue so it is never silently
@@ -207,11 +207,16 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     msg: amqp.ConsumeMessage,
   ): Promise<void> {
     const deadQueue = `${queue}.dead`;
+    // amqplib types message properties as any — narrow before reuse.
+    const originalContentType: unknown = msg.properties.contentType;
     try {
       await channel.assertQueue(deadQueue, { durable: true });
       channel.sendToQueue(deadQueue, msg.content, {
         persistent: true,
-        contentType: msg.properties.contentType ?? 'application/json',
+        contentType:
+          typeof originalContentType === 'string'
+            ? originalContentType
+            : 'application/json',
         headers: {
           ...(msg.properties.headers ?? {}),
           'x-death-origin': queue,
@@ -245,7 +250,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       await reg.handler(payload);
     } catch (err) {
       this.logger.error(
-        `inline ${queue} failed: ${err instanceof Error ? err.message : err}`,
+        `inline ${queue} failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

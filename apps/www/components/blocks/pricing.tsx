@@ -1,57 +1,58 @@
-"use client";
-
-import { useState } from "react";
+import Link from "next/link";
 
 import { Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 const plans = [
   {
     name: "Free",
-    monthlyPrice: "$0",
-    yearlyPrice: "$0",
-    description: "Free for everyone",
+    price: "$0",
+    description: "For your first site",
     features: [
-      "Unlimited members",
-      "2 teams",
-      "500 issues",
-      "Slack and Github integrations",
+      "1 site",
+      "5 AI articles per month",
+      "On-page SEO scoring",
+      "Subscribers + newsletter",
+      "Analytics, RSS, 40+ themes",
     ],
+    cta: { label: "Start for free", href: "/signup" },
+    highlight: false,
   },
   {
-    name: "Startup",
-    monthlyPrice: "$8",
-    yearlyPrice: "$6",
+    name: "Pro",
+    price: "$19",
+    description: "For serious publishing",
     features: [
-      "All free plan features and...",
-      "Mainline AI",
-      "Unlimited teams",
-      "Unlimited issues and file uploads",
-      "Mainline Insights",
-      "Admin roles",
+      "5 sites",
+      "100 AI articles per month",
+      "Keyword research",
+      "Autopilot content plans",
+      "10 publish destinations (WordPress, Dev.to, X)",
+      "Custom domains",
+      "Backlink network",
     ],
+    cta: { label: "Start with Pro", href: "/signup?plan=pro" },
+    highlight: true,
   },
   {
-    name: "Enterprise",
-    monthlyPrice: "$8",
-    yearlyPrice: "$6",
+    name: "Business",
+    price: "$49",
+    description: "For agencies and portfolios",
     features: [
-      "All free plan features and...",
-      "Mainline AI",
-      "Supermainline AGI",
-      "Free daily catered lunch",
-      "random HIPPA audits",
+      "25 sites",
+      "1,000 AI articles per month",
+      "Everything in Pro",
+      "100 publish destinations",
     ],
+    cta: { label: "Start with Business", href: "/signup?plan=business" },
+    highlight: false,
   },
 ];
 
 export const Pricing = ({ className }: { className?: string }) => {
-  const [isAnnual, setIsAnnual] = useState(true);
-
   return (
     <section className={cn("py-28 lg:py-32", className)}>
       <div className="container max-w-5xl">
@@ -60,9 +61,9 @@ export const Pricing = ({ className }: { className?: string }) => {
             Pricing
           </h2>
           <p className="text-muted-foreground mx-auto max-w-xl leading-snug text-balance">
-            Use Mainline for free with your whole team. Upgrade to enable
-            unlimited issues, enhanced security controls, and additional
-            features.
+            Start free with one site and five AI articles a month. Upgrade when
+            you need keyword research, autopilot, and external publishing.
+            Billed per account, not per user.
           </p>
         </div>
 
@@ -70,42 +71,28 @@ export const Pricing = ({ className }: { className?: string }) => {
           {plans.map((plan) => (
             <Card
               key={plan.name}
-              className={`${
-                plan.name === "Startup"
-                  ? "outline-primary origin-top outline-4"
-                  : ""
-              }`}
+              className={
+                plan.highlight ? "outline-primary origin-top outline-4" : ""
+              }
             >
               <CardContent className="flex flex-col gap-7 px-6 py-5">
                 <div className="space-y-2">
                   <h3 className="text-foreground font-semibold">{plan.name}</h3>
                   <div className="space-y-1">
                     <div className="text-muted-foreground text-lg font-medium">
-                      {isAnnual ? plan.yearlyPrice : plan.monthlyPrice}{" "}
+                      {plan.price}
                       {plan.name !== "Free" && (
                         <span className="text-muted-foreground">
-                          per user/
-                          {isAnnual ? "year" : "month"}
+                          {" "}
+                          per month
                         </span>
                       )}
                     </div>
                   </div>
-                </div>
-
-                {plan.name !== "Free" ? (
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={isAnnual}
-                      onCheckedChange={() => setIsAnnual(!isAnnual)}
-                      aria-label="Toggle annual billing"
-                    />
-                    <span className="text-sm font-medium">Billed annually</span>
-                  </div>
-                ) : (
                   <span className="text-muted-foreground text-sm">
                     {plan.description}
                   </span>
-                )}
+                </div>
 
                 <div className="space-y-3">
                   {plan.features.map((feature) => (
@@ -121,9 +108,10 @@ export const Pricing = ({ className }: { className?: string }) => {
 
                 <Button
                   className="w-fit"
-                  variant={plan.name === "Startup" ? "default" : "outline"}
+                  variant={plan.highlight ? "default" : "outline"}
+                  asChild
                 >
-                  Get started
+                  <Link href={plan.cta.href}>{plan.cta.label}</Link>
                 </Button>
               </CardContent>
             </Card>

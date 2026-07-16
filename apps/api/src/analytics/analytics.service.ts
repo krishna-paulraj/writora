@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheService } from '../cache/cache.service';
@@ -98,15 +99,21 @@ export class AnalyticsService {
 
     const blogIds = blogs.map((b) => b.id);
 
-    const dailyViews = await this.prisma.blogView.groupBy({
-      by: ['createdAt'],
-      where: {
-        blogId: { in: blogIds },
-        createdAt: { gte: thirtyDaysAgo },
-      },
-      _count: true,
-      orderBy: { createdAt: 'asc' },
-    });
+    // Aggregate in the database. A Prisma groupBy on `createdAt` groups by the
+    // full timestamp — effectively one row per view shipped to the app — so
+    // bucket by day in SQL instead and return 30 rows at most.
+    const dailyViews: Array<{ day: Date; count: number }> =
+      blogIds.length === 0
+        ? []
+        : await this.prisma.$queryRaw`
+            SELECT date_trunc('day', "createdAt" AT TIME ZONE 'UTC') AS day,
+                   COUNT(*)::int AS count
+              FROM "BlogView"
+             WHERE "blogId" IN (${Prisma.join(blogIds)})
+               AND "createdAt" >= ${thirtyDaysAgo}
+             GROUP BY 1
+             ORDER BY 1 ASC
+          `;
 
     // Aggregate by date
     const viewsByDate: Record<string, number> = {};
@@ -117,8 +124,8 @@ export class AnalyticsService {
       viewsByDate[key] = 0;
     }
     for (const view of dailyViews) {
-      const key = view.createdAt.toISOString().split('T')[0];
-      viewsByDate[key] = (viewsByDate[key] || 0) + view._count;
+      const key = view.day.toISOString().split('T')[0];
+      if (key in viewsByDate) viewsByDate[key] += view.count;
     }
 
     const chartData = Object.entries(viewsByDate).map(([date, views]) => ({

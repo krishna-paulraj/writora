@@ -3,6 +3,18 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, Profile, VerifyCallback } from 'passport-google-oauth20';
 
+// Google sign-in is optional. passport-google-oauth20 throws in its constructor
+// when clientID is missing, so the strategy must only ever be constructed when
+// all three vars are present — AuthModule registers it via a factory gated on
+// this check, and GoogleAuthGuard 503s the /auth/google routes when it's off.
+export function isGoogleAuthConfigured(config: ConfigService): boolean {
+  return Boolean(
+    config.get<string>('GOOGLE_AUTH_CLIENT_ID') &&
+    config.get<string>('GOOGLE_AUTH_SECRET_ID') &&
+    config.get<string>('GOOGLE_REDIRECT_URL'),
+  );
+}
+
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor(configService: ConfigService) {

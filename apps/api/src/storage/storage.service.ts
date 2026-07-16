@@ -113,7 +113,7 @@ export class StorageService {
         );
       } catch (err) {
         this.logger.warn(
-          `s3 delete ${key} failed: ${err instanceof Error ? err.message : err}`,
+          `s3 delete ${key} failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
       return;

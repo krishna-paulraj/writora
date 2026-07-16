@@ -56,13 +56,21 @@ export class AiController {
   ) {}
 
   // 60 AI edits per hour per IP — generous for active writing, expensive enough
-  // that 60 is more than a single user needs and bots get capped.
+  // that 60 is more than a single user needs and bots get capped. On top of the
+  // IP throttle, each assist is metered against the plan's daily allowance so
+  // spend is bounded per account, not just per address.
   @Throttle({ default: { limit: 60, ttl: HOUR } })
   @Post('edit')
-  async edit(@Body() body: EditBody, @Res() res: Response) {
+  async edit(
+    @Req() req: Request,
+    @Body() body: EditBody,
+    @Res() res: Response,
+  ) {
     if (!body?.action || !body?.text) {
       throw new BadRequestException('action and text are required');
     }
+    const user = req.user as { id: string };
+    await this.entitlements.assertAiAssist(user.id);
 
     // Stream as text/event-stream-like plain chunks. Client reads via fetch +
     // ReadableStream; we don't need full SSE framing.
@@ -92,13 +100,17 @@ export class AiController {
 
   @Throttle({ default: { limit: 30, ttl: HOUR } })
   @Post('title')
-  suggestTitles(@Body() body: ContentBody) {
+  async suggestTitles(@Req() req: Request, @Body() body: ContentBody) {
+    const user = req.user as { id: string };
+    await this.entitlements.assertAiAssist(user.id);
     return this.ai.suggestTitles(body?.content ?? '');
   }
 
   @Throttle({ default: { limit: 30, ttl: HOUR } })
   @Post('summarize')
-  summarize(@Body() body: ContentBody) {
+  async summarize(@Req() req: Request, @Body() body: ContentBody) {
+    const user = req.user as { id: string };
+    await this.entitlements.assertAiAssist(user.id);
     return this.ai.summarize(body?.content ?? '');
   }
 

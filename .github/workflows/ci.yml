@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Version comes from packageManager in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Format, lint, typecheck
+        run: pnpm check
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build all apps
+        run: pnpm build
+        env:
+          # NEXT_PUBLIC_* are baked at build time; CI only proves the build.
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_WWW_URL: http://localhost:3000
+          NEXT_PUBLIC_APP_URL: http://localhost:3001
+
+  wordpress-plugin:
+    name: Package WordPress connector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP syntax check
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q php-cli
+          php -l plugins/writora-connector/writora-connector.php
+          php -l plugins/writora-connector/uninstall.php
+
+      - name: Build plugin zip
+        run: |
+          cd plugins
+          zip -r writora-connector.zip writora-connector
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: writora-connector
+          path: plugins/writora-connector.zip

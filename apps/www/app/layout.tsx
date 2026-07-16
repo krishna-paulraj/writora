@@ -3,9 +3,6 @@ import localFont from "next/font/local";
 
 import type { Metadata } from "next";
 
-import { Footer } from "@/components/blocks/footer";
-import { Navbar } from "@/components/blocks/navbar";
-import { StyleGlideProvider } from "@/components/styleglide-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -64,73 +61,59 @@ const inter = Inter({
 
 const SITE_URL = process.env.NEXT_PUBLIC_WWW_URL || "http://localhost:3000";
 
-const GITHUB_REPO = "krishna-paulraj/writora";
-
-async function getStargazersCount(repo: string): Promise<number | null> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${repo}`, {
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return null;
-    const data: { stargazers_count?: number } = await res.json();
-    return typeof data.stargazers_count === "number"
-      ? data.stargazers_count
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Writora - Managing blogs made easy",
+    default: "Writora — AI SEO content engine you can own",
     template: "%s — Writora",
   },
-  description: "Managing blogs made easy",
+  description:
+    "Research keywords, generate SEO-ready articles with AI, and publish to your blog, WordPress, Dev.to, and X — on autopilot. Open codebase you can self-host.",
   keywords: [
-    "Next.js",
-    "nextjs template",
-    "nextjs theme",
-    "nextjs starter",
-    "shadcn template",
-    "shadcn theme",
-    "shadcn starter",
-    "tailwind template",
-    "tailwind theme",
-    "tailwind starter",
-    "mdx template",
-    "mdx theme",
-    "mdx starter",
+    "ai seo tool",
+    "ai article generator",
+    "keyword research",
+    "content autopilot",
+    "ai blog writer",
+    "seo content engine",
+    "self-hosted blog platform",
+    "blogging platform",
+    "outrank alternative",
+    "ai content generation",
   ],
-  authors: [{ name: "shadcnblocks.com" }],
-  creator: "shadcnblocks.com",
-  publisher: "shadcnblocks.com",
+  authors: [{ name: "Writora" }],
+  creator: "Writora",
+  publisher: "Writora",
   robots: {
     index: true,
     follow: true,
   },
   icons: {
-    icon: "/logo.svg",
+    icon: [
+      { url: "/favicon/favicon.ico", sizes: "any" },
+      { url: "/favicon/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/favicon/apple-touch-icon.png",
+  },
+  manifest: "/favicon/site.webmanifest",
+  openGraph: {
+    siteName: "Writora",
+    type: "website",
+    url: SITE_URL,
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
   },
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const stargazersCount = await getStargazersCount(GITHUB_REPO);
-
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <script
-          async
-          crossOrigin="anonymous"
-          src="https://tweakcn.com/live-preview.min.js"
-        />
-      </head>
       <body className={`${dmSans.variable} ${inter.variable} antialiased`}>
         <ThemeProvider
           attribute="class"
@@ -138,12 +121,7 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <TooltipProvider>
-            <StyleGlideProvider />
-            <Navbar repo={GITHUB_REPO} stargazersCount={stargazersCount} />
-            <main className="">{children}</main>
-            <Footer />
-          </TooltipProvider>
+          <TooltipProvider>{children}</TooltipProvider>
         </ThemeProvider>
       </body>
     </html>

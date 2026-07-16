@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CalendarIcon, ClockIcon } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -57,15 +57,20 @@ export function ScheduleDialog({
   );
   const [date, setDate] = useState<Date | undefined>(initial);
   const [time, setTime] = useState(toTimeInputValue(initial));
+  const [pastError, setPastError] = useState(false);
 
-  // Re-seed state whenever the dialog is opened so re-opens don't show stale
-  // values from a previous interaction.
-  useEffect(() => {
+  // Re-seed the picker when the dialog transitions to open, so re-opens don't
+  // show stale values. Conditional setState during render is React's
+  // sanctioned "adjust state when a prop changes" pattern (no effect needed).
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setDate(initial);
       setTime(toTimeInputValue(initial));
+      setPastError(false);
     }
-  }, [open, initial]);
+  }
 
   const combined = useMemo(() => {
     if (!date) return null;
@@ -76,12 +81,14 @@ export function ScheduleDialog({
     return out;
   }, [date, time]);
 
-  // 30s grace tolerance for clock skew between client and server.
-  const isPast = combined ? combined.getTime() < Date.now() - 30_000 : true;
-  const isValid = combined && !isPast;
-
   const submit = () => {
-    if (!combined || !isValid) return;
+    if (!combined) return;
+    // Checked at submit time (render must stay pure — no Date.now() there).
+    // 30s grace tolerance for clock skew between client and server.
+    if (combined.getTime() < Date.now() - 30_000) {
+      setPastError(true);
+      return;
+    }
     onConfirm(combined.toISOString());
     onOpenChange(false);
   };
@@ -107,7 +114,10 @@ export function ScheduleDialog({
               <Calendar
                 mode="single"
                 selected={date}
-                onSelect={setDate}
+                onSelect={(d) => {
+                  setDate(d);
+                  setPastError(false);
+                }}
                 disabled={(d) => {
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
@@ -130,7 +140,10 @@ export function ScheduleDialog({
               id="time"
               type="time"
               value={time}
-              onChange={(e) => setTime(e.target.value)}
+              onChange={(e) => {
+                setTime(e.target.value);
+                setPastError(false);
+              }}
               className="w-full"
             />
           </div>
@@ -138,12 +151,12 @@ export function ScheduleDialog({
           {combined && (
             <p
               className={`text-sm ${
-                isValid ? "text-muted-foreground" : "text-destructive"
+                pastError ? "text-destructive" : "text-muted-foreground"
               }`}
             >
-              {isValid
-                ? `Will publish ${format(combined, "EEEE, MMMM d 'at' h:mm a")}`
-                : "Schedule time must be in the future"}
+              {pastError
+                ? "Schedule time must be in the future"
+                : `Will publish ${format(combined, "EEEE, MMMM d 'at' h:mm a")}`}
             </p>
           )}
         </div>
@@ -152,7 +165,7 @@ export function ScheduleDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!isValid}>
+          <Button onClick={submit} disabled={!combined}>
             Schedule
           </Button>
         </DialogFooter>

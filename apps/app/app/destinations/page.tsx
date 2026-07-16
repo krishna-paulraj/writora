@@ -289,7 +289,9 @@ export default function DestinationsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="xAccessTokenSecret">Access token secret</Label>
+                  <Label htmlFor="xAccessTokenSecret">
+                    Access token secret
+                  </Label>
                   <Input
                     id="xAccessTokenSecret"
                     type="password"

@@ -1,4 +1,5 @@
 import { Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { ArticleGenerationService } from '../ai/article-generation.service';
 import { BlogSchedulerService } from '../blog/blog-scheduler.service';
 import { ContentPlanSchedulerService } from '../content-plan/content-plan-scheduler.service';
 import { CronSecretGuard } from './cron-secret.guard';
@@ -20,16 +21,18 @@ export class InternalCronController {
   constructor(
     private readonly blogScheduler: BlogSchedulerService,
     private readonly contentPlanScheduler: ContentPlanSchedulerService,
+    private readonly articleGen: ArticleGenerationService,
   ) {}
 
   @Post('tick')
   @HttpCode(200)
   async tick() {
-    // Run both independently so one slow/failing tick doesn't skip the other.
-    // Each tick() swallows and logs its own errors, so this never rejects.
+    // Run each independently so one slow/failing tick doesn't skip the others.
+    // Every branch swallows and logs its own errors, so this never rejects.
     await Promise.all([
       this.blogScheduler.tick(),
       this.contentPlanScheduler.tick(),
+      this.articleGen.reapStuckJobs(),
     ]);
     return { ok: true };
   }

@@ -104,6 +104,10 @@ model NetworkMembership {
   relPolicy          String   @default("dofollow") // dofollow | nofollow
   maxOutboundPerPost Int      @default(3)
   niche              String?
+  // Embedding of `niche`, maintained by NetworkService on save (raw SQL, like
+  // BlogEmbedding). When present, backlink matching requires candidate articles
+  // to be semantically close to it; NULL disables the gate for this site.
+  nicheEmbedding     Unsupported("vector(1536)")?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

@@ -4,15 +4,20 @@
  * Plugin URI:        https://writora.app
  * Description:       Receives posts published from Writora and creates/updates them on this WordPress site. One-click cross-posting with idempotent upserts, featured-image sideloading, and canonical URLs back to the original.
  * Version:           1.0.0
- * Requires at least: 5.6
+ * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Writora
  * License:           GPL-2.0-or-later
+ * Update URI:        https://writora.app/plugins/writora-connector
  */
 
 if (!defined('ABSPATH')) {
     exit; // No direct access.
 }
+
+// Single source of truth for the plugin version — keep in sync with the
+// `Version:` header above (WP only reads the header; /ping reports this).
+define('WRITORA_CONNECTOR_VERSION', '1.0.0');
 
 define('WRITORA_TOKEN_OPTION', 'writora_connector_token');
 define('WRITORA_BLOG_ID_META', '_writora_blog_id');
@@ -76,7 +81,7 @@ function writora_rest_ping() {
     return new WP_REST_Response(array(
         'ok'      => true,
         'site'    => get_bloginfo('name'),
-        'version' => '1.0.0',
+        'version' => WRITORA_CONNECTOR_VERSION,
     ), 200);
 }
 

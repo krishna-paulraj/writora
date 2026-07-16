@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsIn,
   IsOptional,
@@ -22,6 +23,7 @@ export class GenerateArticleDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(25)
   @IsString({ each: true })
   @MaxLength(100, { each: true })
   relatedKeywords?: string[];

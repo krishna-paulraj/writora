@@ -32,6 +32,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import {
   addPlanItem,
   CADENCE_LABELS,
   deleteContentPlan,
@@ -113,21 +121,28 @@ export default function ContentPlanDetailPage() {
     return () => clearInterval(t);
   }, [inFlight, refresh]);
 
-  const setStatus = async (status: "active" | "paused") => {
+  const patchPlan = async (
+    patch: Parameters<typeof updateContentPlan>[1],
+    success: string,
+  ) => {
     if (!plan) return;
     setBusy(true);
     try {
-      await updateContentPlan(plan.id, { status });
+      await updateContentPlan(plan.id, patch);
       await refresh();
-      toast.success(
-        status === "paused" ? "Autopilot paused" : "Autopilot resumed",
-      );
+      toast.success(success);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to update plan");
     } finally {
       setBusy(false);
     }
   };
+
+  const setStatus = (status: "active" | "paused") =>
+    patchPlan(
+      { status },
+      status === "paused" ? "Autopilot paused" : "Autopilot resumed",
+    );
 
   const generateNext = async () => {
     if (!plan) return;
@@ -321,18 +336,50 @@ export default function ContentPlanDetailPage() {
                     : "Plan completed"}
               </span>
             </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-              <span className="text-muted-foreground">
-                Cadence:{" "}
-                <span className="text-foreground">
-                  {CADENCE_LABELS[plan.cadence]}
-                </span>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+              <span className="text-muted-foreground flex items-center gap-1.5">
+                Cadence:
+                <Select
+                  value={plan.cadence}
+                  disabled={busy || plan.status === "completed"}
+                  onValueChange={(v) =>
+                    void patchPlan(
+                      { cadence: v as ContentPlanDetail["cadence"] },
+                      "Cadence updated — future articles follow the new schedule",
+                    )
+                  }
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-7 w-[130px] text-xs"
+                    aria-label="Cadence"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(CADENCE_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </span>
-              <span className="text-muted-foreground">
-                Auto-publish:{" "}
-                <span className="text-foreground">
-                  {plan.autoPublish ? "On" : "Off (drafts)"}
-                </span>
+              <span className="text-muted-foreground flex items-center gap-1.5">
+                Auto-publish:
+                <Switch
+                  checked={plan.autoPublish}
+                  disabled={busy || plan.status === "completed"}
+                  aria-label="Auto-publish"
+                  onCheckedChange={(v) =>
+                    void patchPlan(
+                      { autoPublish: v },
+                      v
+                        ? "New articles will publish automatically"
+                        : "New articles will land as drafts",
+                    )
+                  }
+                />
               </span>
               {plan.category && (
                 <span className="text-muted-foreground">

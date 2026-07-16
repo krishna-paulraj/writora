@@ -458,6 +458,13 @@ export class ContentPlanService {
 
   /** Scheduler entrypoint: dispatch the next article for every due plan. */
   async runDuePlans(): Promise<void> {
+    // Crash recovery first — it needs no AI key, and it un-wedges state the
+    // dispatch pass below would otherwise never look at again.
+    await this.recoverWedgedPlans().catch((err) =>
+      this.logger.warn(
+        `recovery sweep failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
     if (!this.ai.isConfigured()) return; // generation impossible without AI
     const due = await this.prisma.contentPlan.findMany({
       where: { status: 'active', nextRunAt: { lte: new Date() } },
@@ -660,6 +667,101 @@ export class ContentPlanService {
     }
 
     return createdJobId;
+  }
+
+  /**
+   * Repairs state a crash can strand, none of which the normal dispatch path
+   * ever revisits (it only considers `planned` items and due `nextRunAt`s):
+   *
+   *  - `queued` items with no ArticleJob (process died between the item claim
+   *    and job creation) → released back to `planned` so they retry. Any plan
+   *    slot / monthly AI slot the crash may have leaked is deliberately NOT
+   *    refunded: we can't tell whether the reservation happened, and an
+   *    over-refund could overrun the plan cap — which, under autoPublish,
+   *    means over-publishing. Under-generation is the safer failure.
+   *  - active plans whose `nextRunAt` mirror is stale (NULL while dated
+   *    planned items remain) → refreshed so the due-plan scan sees them again.
+   *  - active plans with a reached cap and no due tick coming → completed.
+   *  - active plans with no live work at all (no planned/queued/generating
+   *    item, e.g. the final item failed) → completed, instead of sitting
+   *    "active" forever.
+   *
+   * Stuck ArticleJobs themselves are reaped by ArticleGenerationService's
+   * sweep; their plan items follow via syncPlanItem.
+   */
+  private async recoverWedgedPlans(): Promise<void> {
+    const now = Date.now();
+    const orphanCutoff = new Date(now - 15 * 60 * 1000);
+
+    const orphans = await this.prisma.contentPlanItem.findMany({
+      where: {
+        status: 'queued',
+        articleJobId: null,
+        updatedAt: { lt: orphanCutoff },
+      },
+      select: { id: true, planId: true },
+      take: 50,
+    });
+    if (orphans.length > 0) {
+      await this.prisma.contentPlanItem.updateMany({
+        where: { id: { in: orphans.map((o) => o.id) } },
+        data: { status: 'planned' },
+      });
+      this.logger.warn(
+        `released ${orphans.length} orphaned queued item(s) back to planned`,
+      );
+      for (const planId of new Set(orphans.map((o) => o.planId))) {
+        await this.refreshNextRunAt(planId);
+      }
+    }
+
+    // Stale mirror: the plan lost its nextRunAt (e.g. a crash between item
+    // claim and the refresh) while dated planned items remain.
+    const staleMirrors = await this.prisma.contentPlan.findMany({
+      where: {
+        status: 'active',
+        nextRunAt: null,
+        items: { some: { status: 'planned', scheduledFor: { not: null } } },
+      },
+      select: { id: true },
+      take: 25,
+    });
+    for (const { id } of staleMirrors) {
+      await this.refreshNextRunAt(id);
+    }
+
+    // Cap reached but no due tick will ever fire (undated items → nextRunAt
+    // stays NULL after the refresh above): finish the plan here, mirroring
+    // dispatchNext's fast path.
+    const capCandidates = await this.prisma.contentPlan.findMany({
+      where: { status: 'active', totalTarget: { not: null }, nextRunAt: null },
+      select: { id: true, generatedCount: true, totalTarget: true },
+      take: 50,
+    });
+    for (const p of capCandidates) {
+      if (p.totalTarget != null && p.generatedCount >= p.totalTarget) {
+        await this.markCompleted(p.id);
+      }
+    }
+
+    // No live work left (last item finished as failed/skipped outside
+    // dispatchNext, so its completion check never ran). The age guard keeps a
+    // just-created plan from completing before its items are visible.
+    const doneCutoff = new Date(now - 15 * 60 * 1000);
+    const finished = await this.prisma.contentPlan.findMany({
+      where: {
+        status: 'active',
+        createdAt: { lt: doneCutoff },
+        items: {
+          none: { status: { in: ['planned', 'queued', 'generating'] } },
+        },
+      },
+      select: { id: true },
+      take: 25,
+    });
+    for (const { id } of finished) {
+      await this.markCompleted(id);
+    }
   }
 
   /** Release a claimed item back to `planned` (best-effort). */

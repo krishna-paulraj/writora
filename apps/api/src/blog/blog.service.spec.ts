@@ -6,6 +6,10 @@ import { EmailService } from '../email/email.service';
 import { CacheService } from '../cache/cache.service';
 import { QueueService } from '../queue/queue.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
+import { BlogEmbeddingService } from '../embedding/blog-embedding.service';
+import { BacklinkService } from '../backlink/backlink.service';
+import { BacklinkBackfillService } from '../backlink/backlink-backfill.service';
 
 describe('BlogService', () => {
   let service: BlogService;
@@ -13,6 +17,10 @@ describe('BlogService', () => {
   let cache: any;
   let queue: any;
   let notifications: any;
+  let entitlements: any;
+  let embeddings: any;
+  let backlinks: any;
+  let backfill: any;
 
   beforeEach(async () => {
     prisma = {
@@ -44,6 +52,19 @@ describe('BlogService', () => {
       consume: jest.fn(),
     };
     notifications = { emit: jest.fn() };
+    entitlements = {
+      effectivePlan: jest.fn().mockResolvedValue('pro'),
+      limitsFor: jest.fn(() => ({ customDomain: true })),
+    };
+    embeddings = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+      findSimilar: jest.fn().mockResolvedValue([]),
+    };
+    backlinks = {
+      onTargetUnavailable: jest.fn().mockResolvedValue(undefined),
+    };
+    backfill = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -57,6 +78,10 @@ describe('BlogService', () => {
           useValue: { get: jest.fn(() => undefined) },
         },
         { provide: NotificationsService, useValue: notifications },
+        { provide: EntitlementsService, useValue: entitlements },
+        { provide: BlogEmbeddingService, useValue: embeddings },
+        { provide: BacklinkService, useValue: backlinks },
+        { provide: BacklinkBackfillService, useValue: backfill },
       ],
     }).compile();
 
@@ -205,7 +230,7 @@ describe('BlogService', () => {
       prisma.site.findFirst.mockResolvedValue({
         slug: 'alice',
         isPrimary: true,
-        user: { username: 'alice' },
+        user: { id: 'u1', username: 'alice' },
       });
 
       const result = await service.findUsernameByDomain('Example.com');
@@ -220,12 +245,32 @@ describe('BlogService', () => {
         select: {
           slug: true,
           isPrimary: true,
-          user: { select: { username: true } },
+          user: { select: { id: true, username: true } },
         },
       });
       expect(cache.set).toHaveBeenCalledWith(
         'blog:domain:example.com',
         { value: { username: 'alice', siteSlug: 'alice', isPrimary: true } },
+        expect.any(Number),
+      );
+    });
+
+    it('stops resolving after the owner loses the custom-domain entitlement', async () => {
+      cache.get.mockResolvedValue(null);
+      prisma.site.findFirst.mockResolvedValue({
+        slug: 'alice',
+        isPrimary: true,
+        user: { id: 'u1', username: 'alice' },
+      });
+      entitlements.effectivePlan.mockResolvedValue('free');
+      entitlements.limitsFor.mockReturnValue({ customDomain: false });
+
+      const result = await service.findUsernameByDomain('example.com');
+
+      expect(result).toBeNull();
+      expect(cache.set).toHaveBeenCalledWith(
+        'blog:domain:example.com',
+        { value: null },
         expect.any(Number),
       );
     });

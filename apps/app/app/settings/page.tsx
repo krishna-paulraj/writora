@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { CheckCircle2Icon, Loader2Icon, MailWarningIcon } from "lucide-react";
 import { toast } from "sonner";
 import { SiteHeader } from "@/components/site-header";
@@ -29,7 +30,6 @@ interface ProfileForm {
   avatarUrl: string;
   twitterHandle: string;
   websiteUrl: string;
-  customDomain: string;
 }
 
 const EMPTY: ProfileForm = {
@@ -39,7 +39,6 @@ const EMPTY: ProfileForm = {
   avatarUrl: "",
   twitterHandle: "",
   websiteUrl: "",
-  customDomain: "",
 };
 
 export default function SettingsPage() {
@@ -63,7 +62,6 @@ export default function SettingsPage() {
           avatarUrl: data.avatarUrl || "",
           twitterHandle: data.twitterHandle || "",
           websiteUrl: data.websiteUrl || "",
-          customDomain: data.customDomain || "",
         };
         setForm(profile);
         setOriginal(profile);
@@ -80,8 +78,7 @@ export default function SettingsPage() {
     form.bio !== original.bio ||
     form.avatarUrl !== original.avatarUrl ||
     form.twitterHandle !== original.twitterHandle ||
-    form.websiteUrl !== original.websiteUrl ||
-    form.customDomain !== original.customDomain;
+    form.websiteUrl !== original.websiteUrl;
 
   const handleAvatarUpload = () => {
     const input = document.createElement("input");
@@ -332,17 +329,13 @@ export default function SettingsPage() {
             <Separator />
 
             <div className="space-y-2">
-              <Label htmlFor="domain">Custom domain</Label>
-              <Input
-                id="domain"
-                value={form.customDomain}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, customDomain: e.target.value }))
-                }
-                placeholder="blog.yourdomain.com"
-              />
-              <p className="text-muted-foreground text-xs">
-                Point your domain via CNAME to writora.com. Not yet active.
+              <Label>Custom domain</Label>
+              <p className="text-muted-foreground text-sm">
+                Custom domains are configured per site on the{" "}
+                <Link href="/sites" className="text-foreground underline">
+                  Sites
+                </Link>{" "}
+                page.
               </p>
             </div>
 

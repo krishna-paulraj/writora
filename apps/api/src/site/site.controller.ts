@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SiteService } from './site.service';
 import { CreateSiteDto } from './dto/create-site.dto';
 import { UpdateSiteDto } from './dto/update-site.dto';
+import { SetDomainDto } from './dto/set-domain.dto';
 
 const HOUR = 60 * 60_000;
 
@@ -53,7 +54,7 @@ export class SiteController {
   setDomain(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() body: { customDomain?: string | null },
+    @Body() body: SetDomainDto,
   ) {
     const user = req.user as { id: string };
     return this.sites.setCustomDomain(user.id, id, body?.customDomain ?? null);

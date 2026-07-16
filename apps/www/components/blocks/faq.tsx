@@ -10,52 +10,71 @@ import { cn } from "@/lib/utils";
 
 const categories = [
   {
-    title: "Support",
+    title: "Product",
     questions: [
       {
-        question: "How do I update my account without breaking my laptop?",
+        question: "What is Writora?",
         answer:
-          "Lorem ipsum dolor sit amet consectetur adipisicing elit. Minus voluptates deserunt officia temporibus dignissimos.",
+          "Writora is an AI SEO content engine and blogging platform. You research keywords, generate article drafts with AI, score them for on-page SEO, and publish — to your own hosted blog, or out to WordPress, Dev.to, and X. Use the hosted service, or self-host the open codebase.",
       },
       {
-        question: "Is support free, or do I need to Google everything?",
+        question: "Do I need my own OpenAI key?",
         answer:
-          "Lorem ipsum dolor sit amet consectetur adipisicing elit. Minus voluptates deserunt officia temporibus dignissimos.",
+          "No. Hosted plans include AI generation within your monthly article limit — no API keys to manage.",
       },
       {
-        question: "Are you going to be subsumed by AI?",
+        question: "How does autopilot work?",
         answer:
-          "Lorem ipsum dolor sit amet consectetur adipisicing elit. Minus voluptates deserunt officia temporibus dignissimos.",
+          "You pick a topic and a cadence. Writora brainstorms a cluster of article ideas for your site, then generates and publishes each post automatically on that schedule. Autopilot is available on Pro and Business.",
+      },
+      {
+        question: "Where can I publish?",
+        answer:
+          "Every plan includes your own hosted blog. Pro and Business plans can also push posts to WordPress (via the Writora Connector plugin), cross-post to Dev.to, and auto-post to X.",
       },
     ],
   },
   {
-    title: "Your account",
+    title: "Plans & billing",
     questions: [
       {
-        question: "Is support free, or do I need to Google everything?",
+        question: "What counts as an AI article?",
         answer:
-          "Lorem ipsum dolor sit amet consectetur adipisicing elit. Minus voluptates deserunt officia temporibus dignissimos.",
+          "Each generated draft counts against your monthly limit, whether or not you end up publishing it.",
       },
       {
-        question: "Are you going to be subsumed by AI?",
+        question: "What happens when I hit my monthly limit?",
         answer:
-          "Lorem ipsum dolor sit amet consectetur adipisicing elit. Minus voluptates deserunt officia temporibus dignissimos.",
+          "AI generation pauses until the next month. You can keep writing and publishing manually in the meantime, or upgrade for a higher limit.",
+      },
+      {
+        question: "Do unused articles roll over?",
+        answer: "No. Limits reset at the start of each billing month.",
+      },
+      {
+        question: "Can I cancel anytime?",
+        answer:
+          "Yes. Manage or cancel your subscription through the Stripe customer portal in your billing settings. You keep paid features until the end of the billing period.",
       },
     ],
   },
   {
-    title: "Other questions",
+    title: "Self-hosting",
     questions: [
       {
-        question: "Is support free, or do I need to Google everything?",
+        question: "Is there a free self-hosted option?",
         answer:
-          "Lorem ipsum dolor sit amet consectetur adipisicing elit. Minus voluptates deserunt officia temporibus dignissimos.",
+          "Yes. The full codebase is open at github.com/krishna-paulraj/writora and ships with a Docker compose stack, so you can run the whole platform on your own infrastructure.",
       },
       {
-        question: "Are you going to be subsumed by AI?",
+        question: "Do custom domains work?",
         answer:
-          "Lorem ipsum dolor sit amet consectetur adipisicing elit. Minus voluptates deserunt officia temporibus dignissimos.",
+          "Yes. Point your DNS at the deployment and set the domain on your site. On the hosted service, custom domains are available on Pro and Business plans.",
+      },
+      {
+        question: "Where does my data live?",
+        answer:
+          "When you self-host, everything — content, subscribers, analytics — lives in your own Postgres database, on your own servers.",
       },
     ],
   },
@@ -85,7 +104,7 @@ export const FAQ = ({
               </h2>
             )}
             <p className="text-muted-foreground max-w-md leading-snug lg:mx-auto">
-              If you can't find what you're looking for,{" "}
+              If you can&apos;t find what you&apos;re looking for,{" "}
               <Link href="/contact" className="underline underline-offset-4">
                 get in touch
               </Link>
@@ -95,7 +114,7 @@ export const FAQ = ({
 
           <div className="grid gap-6 text-start">
             {categories.map((category, categoryIndex) => (
-              <div key={category.title} className="">
+              <div key={category.title}>
                 <h3 className="text-muted-foreground border-b py-4">
                   {category.title}
                 </h3>

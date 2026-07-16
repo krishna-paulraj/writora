@@ -25,6 +25,9 @@ function normSite(url: string): string {
 @Injectable()
 export class WordPressAdapter implements PublishAdapter {
   readonly platform = 'wordpress';
+  // The Writora Connector plugin looks posts up by writoraBlogId before
+  // creating, so a retried create updates the existing post instead.
+  readonly idempotentCreate = true;
 
   validate(creds: Record<string, unknown>): void {
     const c = creds as Partial<WpCreds>;

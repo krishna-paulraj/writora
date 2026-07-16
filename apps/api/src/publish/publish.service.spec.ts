@@ -55,18 +55,21 @@ describe('PublishService', () => {
     };
     wp = {
       platform: 'wordpress',
+      idempotentCreate: true,
       validate: jest.fn(),
       test: jest.fn(),
       publish: jest.fn(),
     };
     devto = {
       platform: 'devto',
+      idempotentCreate: false,
       validate: jest.fn(),
       test: jest.fn(),
       publish: jest.fn(),
     };
     x = {
       platform: 'x',
+      idempotentCreate: false,
       validate: jest.fn(),
       test: jest.fn(),
       publish: jest.fn(),
@@ -270,6 +273,59 @@ describe('PublishService', () => {
       const where = prisma.publishTarget.findMany.mock.calls[0][0].where;
       expect(where).toMatchObject({ enabled: true, autoPublish: true });
       expect(prisma.publishRecord.upsert).toHaveBeenCalled();
+    });
+
+    it('suppresses a redelivered create with unknown outcome on Dev.to/X (no duplicate post)', async () => {
+      prisma.publishTarget.findMany.mockResolvedValue([
+        {
+          id: 't1',
+          userId: 'u1',
+          name: 'Dev.to',
+          platform: 'devto',
+          credentials: '{}',
+        },
+      ]);
+      prisma.blog.findUnique.mockResolvedValue(blog);
+      // A crashed prior attempt left its intent row without an external id.
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        status: 'pending',
+        externalId: null,
+      });
+      prisma.publishTarget.update.mockResolvedValue({});
+
+      await service.handleBlogPublished({ blogId: 'b1', authorId: 'u1' });
+
+      expect(devto.publish).not.toHaveBeenCalled();
+      const upsert = prisma.publishRecord.upsert.mock.calls.at(-1)[0];
+      expect(upsert.update.status).toBe('failed');
+      expect(upsert.update.error).toContain('interrupted');
+      expect(notifications.emit).toHaveBeenCalledWith(
+        'u1',
+        expect.objectContaining({ title: expect.stringContaining('publish') }),
+      );
+    });
+
+    it('still retries WordPress after an interrupted attempt (idempotent create)', async () => {
+      prisma.publishTarget.findMany.mockResolvedValue([
+        {
+          id: 't1',
+          userId: 'u1',
+          name: 'WP',
+          platform: 'wordpress',
+          credentials: '{}',
+        },
+      ]);
+      prisma.blog.findUnique.mockResolvedValue(blog);
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        status: 'pending',
+        externalId: null,
+      });
+      prisma.publishTarget.update.mockResolvedValue({});
+      wp.publish.mockResolvedValue({ externalId: 'wp-1', externalUrl: 'u' });
+
+      await service.handleBlogPublished({ blogId: 'b1', authorId: 'u1' });
+
+      expect(wp.publish).toHaveBeenCalled();
     });
   });
 });

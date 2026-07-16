@@ -20,7 +20,6 @@ import {
   EllipsisVerticalIcon,
   CircleUserRoundIcon,
   CreditCardIcon,
-  BellIcon,
   LogOutIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -96,7 +95,7 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
-                <Link href="/account">
+                <Link href="/settings">
                   <CircleUserRoundIcon />
                   Account
                 </Link>
@@ -105,12 +104,6 @@ export function NavUser({
                 <Link href="/billing">
                   <CreditCardIcon />
                   Billing
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/notifications">
-                  <BellIcon />
-                  Notifications
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>

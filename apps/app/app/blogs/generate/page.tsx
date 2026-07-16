@@ -134,7 +134,8 @@ export default function GenerateArticlePage() {
               <Progress value={job.progress} />
               <p className="text-muted-foreground text-xs">
                 Generating &quot;{job.topic}&quot;. This usually takes under a
-                minute — you&apos;ll be taken to the editor when it&apos;s ready.
+                minute — you&apos;ll be taken to the editor when it&apos;s
+                ready.
               </p>
             </div>
           ) : (
@@ -284,9 +285,7 @@ export default function GenerateArticlePage() {
                 <Label>Category</Label>
                 <CategoryCombobox
                   value={form.category ?? ""}
-                  onChange={(category) =>
-                    setForm((p) => ({ ...p, category }))
-                  }
+                  onChange={(category) => setForm((p) => ({ ...p, category }))}
                 />
               </div>
 

@@ -96,16 +96,11 @@ export default function BlogsPage() {
     });
   }, [blogs, search, statusFilter]);
 
-  const fetchCategories = async () => {
-    try {
-      const res = await apiFetch(`/categories`);
-      if (res.ok) {
-        setCategories(await res.json());
-      }
-    } catch {
-      // ignore
-    }
-  };
+  // Promise-chain style (see fetchBlogs below for why).
+  const fetchCategories = () =>
+    apiFetch(`/categories`)
+      .then((res) => (res.ok ? res.json().then(setCategories) : undefined))
+      .catch(() => undefined);
 
   const createCategory = async () => {
     if (!newCategoryName.trim()) return;
@@ -133,9 +128,8 @@ export default function BlogsPage() {
 
   const deleteCategory = async (id: string) => {
     try {
-      const res = await fetch(`${API_URL}/categories/${id}`, {
+      const res = await apiFetch(`/categories/${id}`, {
         method: "DELETE",
-        credentials: "include",
       });
       if (res.ok) {
         toast.success("Category deleted");
@@ -148,19 +142,14 @@ export default function BlogsPage() {
     }
   };
 
-  const fetchBlogs = async () => {
-    try {
-      const res = await apiFetch(`/blogs`);
-      if (res.ok) {
-        const data = await res.json();
-        setBlogs(data);
-      }
-    } catch {
-      // handle error silently
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Promise-chain style (not async/await): the lint rule treats everything in
+  // an async function called from an effect as a synchronous setState, while
+  // .then callbacks are recognized as async continuations.
+  const fetchBlogs = () =>
+    apiFetch(`/blogs`)
+      .then((res) => (res.ok ? res.json().then(setBlogs) : undefined))
+      .catch(() => undefined) // handled silently
+      .finally(() => setLoading(false));
 
   useEffect(() => {
     fetchBlogs();

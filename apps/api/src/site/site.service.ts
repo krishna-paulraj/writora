@@ -96,8 +96,8 @@ export class SiteService {
   }
 
   async create(userId: string, dto: CreateSiteDto) {
-    // These DTOs carry no class-validator decorators, so the global pipe won't
-    // coerce/validate types — guard against non-string bodies before trimming.
+    // The DTOs are class-validator validated at the pipe; these typeof guards
+    // are defence-in-depth for non-HTTP callers (internal service use).
     const name = typeof dto.name === 'string' ? dto.name.trim() : '';
     if (!name) throw new BadRequestException('name is required');
     if (typeof dto.slug !== 'string' || !dto.slug.trim()) {

@@ -17,6 +17,11 @@ import { GoogleAuthGuard } from './google-auth.guard';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import {
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  VerifyEmailDto,
+} from './dto/password-flow.dto';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -71,7 +76,7 @@ export class AuthController {
   // Email-bomb protection — 3 reset emails per hour per IP.
   @Throttle({ default: { limit: 3, ttl: HOUR } })
   @Post('forgot-password')
-  async forgotPassword(@Body() body: { email: string }) {
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
     await this.authService.requestPasswordReset(body.email);
     // Always return success — don't disclose whether the email exists
     return { ok: true };
@@ -80,7 +85,7 @@ export class AuthController {
   // Token-guessing protection — 10 attempts per hour per IP.
   @Throttle({ default: { limit: 10, ttl: HOUR } })
   @Post('reset-password')
-  async resetPassword(@Body() body: { token: string; password: string }) {
+  async resetPassword(@Body() body: ResetPasswordDto) {
     await this.authService.resetPassword(body.token, body.password);
     return { ok: true };
   }
@@ -88,7 +93,7 @@ export class AuthController {
   // Verification links are clicked at most a few times — generous cap.
   @Throttle({ default: { limit: 20, ttl: HOUR } })
   @Post('verify-email')
-  async verifyEmail(@Body() body: { token: string }) {
+  async verifyEmail(@Body() body: VerifyEmailDto) {
     return this.authService.verifyEmail(body.token);
   }
 

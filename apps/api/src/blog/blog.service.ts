@@ -378,7 +378,7 @@ export class BlogService implements OnModuleInit {
         // Leave sideEffectsDispatchedAt NULL so the reconciler retries the
         // fan-out on a later tick.
         this.logger.error(
-          `side-effect dispatch failed for ${post.id}: ${err instanceof Error ? err.message : err}`,
+          `side-effect dispatch failed for ${post.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -471,13 +471,15 @@ export class BlogService implements OnModuleInit {
       } catch (err) {
         // Leave sideEffectsDispatchedAt NULL so a later tick retries.
         this.logger.error(
-          `side-effect reconcile failed for ${post.id}: ${err instanceof Error ? err.message : err}`,
+          `side-effect reconcile failed for ${post.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
 
     if (recovered > 0) {
-      this.logger.log(`reconciled dropped side-effects for ${recovered} post(s)`);
+      this.logger.log(
+        `reconciled dropped side-effects for ${recovered} post(s)`,
+      );
     }
   }
 

@@ -11,6 +11,9 @@ import { sanitizeContent } from '../blog/sanitize';
 
 // Minimum cosine similarity for a backlink to be considered relevant enough.
 const MIN_SCORE = 0.25;
+// Minimum similarity between the probe article and a member site's declared
+// niche embedding (when set) for that site to take part in a match.
+const NICHE_MIN_SCORE = 0.25;
 // How many existing posts to consider linking to a newly published post.
 const BACKFILL_FANOUT = 5;
 // Marker attribute on the managed links block — found/replaced/stripped
@@ -312,41 +315,13 @@ export class BacklinkService {
        JOIN "User" u ON u."id" = s."userId"
        JOIN "NetworkMembership" nm ON nm."siteId" = s."id" AND nm."enabled" = true
        WHERE bl."published" = true AND s."id" <> $2 AND s."userId" <> $3
+         -- Niche gate: a member with a declared niche only matches when the
+         -- probe article is semantically close to that niche.
+         AND (nm."nicheEmbedding" IS NULL
+              OR 1 - (nm."nicheEmbedding" <=> $1::vector) >= ${NICHE_MIN_SCORE})
        ORDER BY b."embedding" <=> $1::vector ASC
        LIMIT $4`,
       vectorLiteral,
-      excludeSiteId,
-      excludeUserId,
-      limit,
-    );
-    return rows.filter((r) => r.score >= MIN_SCORE);
-  }
-
-  /** k-NN using a stored blog's embedding (for backfill). Excludes self+owner. */
-  async findTargetsByBlog(
-    blogId: string,
-    excludeSiteId: string,
-    excludeUserId: string,
-    limit: number,
-  ): Promise<TargetRow[]> {
-    if (limit <= 0) return [];
-    const rows = await this.prisma.$queryRawUnsafe<TargetRow[]>(
-      `SELECT b."blogId" AS "blogId",
-              1 - (b."embedding" <=> probe."embedding") AS "score",
-              bl."title" AS "title", bl."slug" AS "slug",
-              s."id" AS "siteId", s."slug" AS "siteSlug",
-              s."isPrimary" AS "isPrimary", u."username" AS "username"
-       FROM "BlogEmbedding" b
-       CROSS JOIN (SELECT "embedding" FROM "BlogEmbedding" WHERE "blogId" = $1) probe
-       JOIN "Blog" bl ON bl."id" = b."blogId"
-       JOIN "Site" s ON s."id" = bl."siteId"
-       JOIN "User" u ON u."id" = s."userId"
-       JOIN "NetworkMembership" nm ON nm."siteId" = s."id" AND nm."enabled" = true
-       WHERE bl."published" = true AND b."blogId" <> $1
-         AND s."id" <> $2 AND s."userId" <> $3
-       ORDER BY b."embedding" <=> probe."embedding" ASC
-       LIMIT $4`,
-      blogId,
       excludeSiteId,
       excludeUserId,
       limit,

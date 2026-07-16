@@ -95,6 +95,7 @@ function Carousel({
 
   React.useEffect(() => {
     if (!api) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- vendored shadcn/embla carousel: scroll state only exists on the API object, so the initial sync read must happen here
     onSelect(api);
     api.on("reInit", onSelect);
     api.on("select", onSelect);

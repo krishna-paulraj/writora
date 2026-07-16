@@ -32,6 +32,9 @@ function toTag(category: string): string[] {
 @Injectable()
 export class DevtoAdapter implements PublishAdapter {
   readonly platform = 'devto';
+  // Dev.to's create endpoint has no idempotency key — a retried create whose
+  // first outcome is unknown would publish a duplicate article.
+  readonly idempotentCreate = false;
 
   validate(creds: Record<string, unknown>): void {
     const c = creds as Partial<DevtoCreds>;

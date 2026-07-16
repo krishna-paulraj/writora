@@ -21,10 +21,7 @@ import {
 import {
   LayoutDashboardIcon,
   ChartBarIcon,
-  CameraIcon,
-  FileTextIcon,
   Settings2Icon,
-  CircleHelpIcon,
   SearchIcon,
   CalendarIcon,
   PenLineIcon,
@@ -36,8 +33,8 @@ import {
   CreditCardIcon,
   Link2Icon,
 } from "lucide-react";
-import { FaWordpress } from "react-icons/fa";
-import { FaXTwitter, FaMedium, FaDiscord, FaTelegram } from "react-icons/fa6";
+import { FaWordpress, FaDev } from "react-icons/fa";
+import { FaXTwitter, FaDiscord, FaTelegram } from "react-icons/fa6";
 import Image from "next/image";
 import Link from "next/link";
 import { NavAutopost } from "./nav-autopost";
@@ -96,54 +93,6 @@ const data = {
       icon: <WebhookIcon />,
     },
   ],
-  navClouds: [
-    {
-      title: "Capture",
-      icon: <CameraIcon />,
-      isActive: true,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Proposal",
-      icon: <FileTextIcon />,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Prompts",
-      icon: <FileTextIcon />,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-  ],
   navSecondary: [
     {
       title: "Settings",
@@ -155,17 +104,8 @@ const data = {
       url: "/billing",
       icon: <CreditCardIcon />,
     },
-    {
-      title: "Get Help",
-      url: "#",
-      icon: <CircleHelpIcon />,
-    },
-    {
-      title: "Search",
-      url: "#",
-      icon: <SearchIcon />,
-    },
   ],
+  // The platforms cross-posting actually supports — all managed on /destinations.
   navAutopost: [
     {
       name: "WordPress",
@@ -173,19 +113,14 @@ const data = {
       icon: <FaWordpress />,
     },
     {
-      name: "Medium",
-      url: "#",
-      icon: <FaMedium />,
+      name: "Dev.to",
+      url: "/destinations",
+      icon: <FaDev />,
     },
     {
       name: "X (formerly Twitter)",
       url: "/destinations",
       icon: <FaXTwitter />,
-    },
-    {
-      name: "Newsletter",
-      url: "#",
-      icon: <MailIcon />,
     },
   ],
   documents: [

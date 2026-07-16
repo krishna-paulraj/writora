@@ -404,7 +404,10 @@ export function TiptapEditor({ content, onChange }: TiptapEditorProps) {
     if (!brief || !brief.trim()) return;
     const tId = toast.loading("Generating image…");
     try {
-      const url = await generateImage({ kind: "inline", heading: brief.trim() });
+      const url = await generateImage({
+        kind: "inline",
+        heading: brief.trim(),
+      });
       editor.chain().focus().setImage({ src: url }).run();
       toast.success("Image inserted", { id: tId });
     } catch (err) {

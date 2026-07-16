@@ -100,7 +100,9 @@ export default function NetworkPage() {
     return (
       <>
         <SiteHeader title="Backlink Network" />
-        <div className="text-muted-foreground py-24 text-center">Loading...</div>
+        <div className="text-muted-foreground py-24 text-center">
+          Loading...
+        </div>
       </>
     );
   }
@@ -117,10 +119,10 @@ export default function NetworkPage() {
             Backlink network
           </h2>
           <p className="text-muted-foreground text-sm">
-            Opt this site into the cross-site network and your published articles
-            will earn relevant contextual backlinks from other members&apos;
-            sites — and link out to theirs. Matches are made by topical
-            relevance; only published posts ever participate.
+            Opt this site into the cross-site network and your published
+            articles will earn relevant contextual backlinks from other
+            members&apos; sites — and link out to theirs. Matches are made by
+            topical relevance; only published posts ever participate.
           </p>
         </div>
 
@@ -160,104 +162,104 @@ export default function NetworkPage() {
               </Card>
             </div>
             <Card>
-            <CardHeader>
-              <CardTitle>Settings for this site</CardTitle>
-              <CardDescription>
-                These apply to the currently selected site.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <Label htmlFor="enabled">Participate in the network</Label>
-                  <p className="text-muted-foreground text-sm">
-                    {joined
-                      ? "This site is part of the network."
-                      : "Turn on to join."}
+              <CardHeader>
+                <CardTitle>Settings for this site</CardTitle>
+                <CardDescription>
+                  These apply to the currently selected site.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label htmlFor="enabled">Participate in the network</Label>
+                    <p className="text-muted-foreground text-sm">
+                      {joined
+                        ? "This site is part of the network."
+                        : "Turn on to join."}
+                    </p>
+                  </div>
+                  <Switch
+                    id="enabled"
+                    checked={form.enabled}
+                    disabled={saving}
+                    onCheckedChange={(v) => save({ enabled: v })}
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Link type (rel)</Label>
+                  <NativeSelect
+                    className="w-full max-w-xs"
+                    value={form.relPolicy}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        relPolicy: e.target.value as "dofollow" | "nofollow",
+                      }))
+                    }
+                  >
+                    <NativeSelectOption value="dofollow">
+                      Dofollow (passes authority)
+                    </NativeSelectOption>
+                    <NativeSelectOption value="nofollow">
+                      Nofollow (safer)
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="maxout">Max outbound links per post</Label>
+                  <Input
+                    id="maxout"
+                    type="number"
+                    min={0}
+                    max={10}
+                    className="max-w-[8rem]"
+                    value={form.maxOutboundPerPost}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        maxOutboundPerPost: Number(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="niche">Niche / topic (optional)</Label>
+                  <Input
+                    id="niche"
+                    placeholder="e.g. SaaS marketing, fitness, finance"
+                    className="max-w-md"
+                    value={form.niche}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, niche: e.target.value }))
+                    }
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    Helps keep matched backlinks topically relevant.
                   </p>
                 </div>
-                <Switch
-                  id="enabled"
-                  checked={form.enabled}
-                  disabled={saving}
-                  onCheckedChange={(v) => save({ enabled: v })}
-                />
-              </div>
 
-              <div className="grid gap-2">
-                <Label>Link type (rel)</Label>
-                <NativeSelect
-                  className="w-full max-w-xs"
-                  value={form.relPolicy}
-                  disabled={saving}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      relPolicy: e.target.value as "dofollow" | "nofollow",
-                    }))
+                <Button
+                  onClick={() =>
+                    save({
+                      relPolicy: form.relPolicy,
+                      maxOutboundPerPost: form.maxOutboundPerPost,
+                      niche: form.niche.trim() || null,
+                    })
                   }
+                  disabled={saving}
                 >
-                  <NativeSelectOption value="dofollow">
-                    Dofollow (passes authority)
-                  </NativeSelectOption>
-                  <NativeSelectOption value="nofollow">
-                    Nofollow (safer)
-                  </NativeSelectOption>
-                </NativeSelect>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="maxout">Max outbound links per post</Label>
-                <Input
-                  id="maxout"
-                  type="number"
-                  min={0}
-                  max={10}
-                  className="max-w-[8rem]"
-                  value={form.maxOutboundPerPost}
-                  disabled={saving}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      maxOutboundPerPost: Number(e.target.value),
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="niche">Niche / topic (optional)</Label>
-                <Input
-                  id="niche"
-                  placeholder="e.g. SaaS marketing, fitness, finance"
-                  className="max-w-md"
-                  value={form.niche}
-                  disabled={saving}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, niche: e.target.value }))
-                  }
-                />
-                <p className="text-muted-foreground text-xs">
-                  Helps keep matched backlinks topically relevant.
-                </p>
-              </div>
-
-              <Button
-                onClick={() =>
-                  save({
-                    relPolicy: form.relPolicy,
-                    maxOutboundPerPost: form.maxOutboundPerPost,
-                    niche: form.niche.trim() || null,
-                  })
-                }
-                disabled={saving}
-              >
-                {saving ? (
-                  <Loader2Icon className="size-4 animate-spin" />
-                ) : null}
-                Save settings
-              </Button>
-            </CardContent>
+                  {saving ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : null}
+                  Save settings
+                </Button>
+              </CardContent>
             </Card>
           </>
         )}

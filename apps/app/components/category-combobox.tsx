@@ -41,19 +41,15 @@ export function CategoryCombobox({
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState("");
 
-  const fetchCategories = async () => {
-    try {
-      const res = await apiFetch(`/categories`);
-      if (res.ok) {
-        setCategories(await res.json());
-      }
-    } catch {
-      // ignore
-    }
-  };
+  // Promise-chain style so the effect below passes the set-state-in-effect
+  // lint rule (setState only ever runs in .then callbacks).
+  const fetchCategories = () =>
+    apiFetch(`/categories`)
+      .then((res) => (res.ok ? res.json().then(setCategories) : undefined))
+      .catch(() => undefined);
 
   useEffect(() => {
-    fetchCategories();
+    void fetchCategories();
   }, []);
 
   const handleCreate = async () => {

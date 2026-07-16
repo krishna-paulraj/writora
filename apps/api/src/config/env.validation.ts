@@ -74,10 +74,14 @@ export function validate(
   // — the customer pays and never receives their entitlements. If billing is
   // enabled at all, require the pieces that make it actually work.
   const stripeKey =
-    typeof config.STRIPE_SECRET_KEY === 'string' ? config.STRIPE_SECRET_KEY : '';
+    typeof config.STRIPE_SECRET_KEY === 'string'
+      ? config.STRIPE_SECRET_KEY
+      : '';
   if (stripeKey) {
-    const has = (k: string) =>
-      typeof config[k] === 'string' && (config[k] as string).length > 0;
+    const has = (k: string) => {
+      const v = config[k];
+      return typeof v === 'string' && v.length > 0;
+    };
     if (!has('STRIPE_WEBHOOK_SECRET')) {
       problems.push(
         'STRIPE_SECRET_KEY is set but STRIPE_WEBHOOK_SECRET is missing — subscription webhooks cannot be verified, so paid upgrades would never take effect',

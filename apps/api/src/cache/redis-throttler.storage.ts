@@ -87,7 +87,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       };
     } catch (err) {
       this.logger.warn(
-        `throttler increment failed (fail-open): ${err instanceof Error ? err.message : err}`,
+        `throttler increment failed (fail-open): ${err instanceof Error ? err.message : String(err)}`,
       );
       return {
         totalHits: 0,

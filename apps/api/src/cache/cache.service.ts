@@ -45,7 +45,7 @@ export class CacheService implements OnModuleDestroy {
       return JSON.parse(raw) as T;
     } catch (err) {
       this.logger.warn(
-        `cache get failed for ${key}: ${err instanceof Error ? err.message : err}`,
+        `cache get failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
     }
@@ -57,7 +57,7 @@ export class CacheService implements OnModuleDestroy {
       await this.redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
     } catch (err) {
       this.logger.warn(
-        `cache set failed for ${key}: ${err instanceof Error ? err.message : err}`,
+        `cache set failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -68,7 +68,7 @@ export class CacheService implements OnModuleDestroy {
       await this.redis.del(...keys);
     } catch (err) {
       this.logger.warn(
-        `cache del failed: ${err instanceof Error ? err.message : err}`,
+        `cache del failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -92,8 +92,32 @@ export class CacheService implements OnModuleDestroy {
       if (pending > 0) await pipeline.exec();
     } catch (err) {
       this.logger.warn(
-        `cache delPattern failed for ${pattern}: ${err instanceof Error ? err.message : err}`,
+        `cache delPattern failed for ${pattern}: ${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+  }
+
+  /**
+   * INCR key, stamping the TTL when the key is created — an atomic windowed
+   * counter (per-user daily quotas etc.). Returns the post-increment count, or
+   * null when Redis is off (callers should fail open: self-host without Redis
+   * keeps working, it just isn't metered).
+   */
+  async incrWithTtl(key: string, ttlSeconds: number): Promise<number | null> {
+    if (!this.redis) return null;
+    try {
+      const [[incrErr, count]] = (await this.redis
+        .multi()
+        .incr(key)
+        .expire(key, ttlSeconds, 'NX')
+        .exec()) as [[Error | null, number], ...unknown[]];
+      if (incrErr) throw incrErr;
+      return count;
+    } catch (err) {
+      this.logger.warn(
+        `cache incr failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
     }
   }
 
@@ -112,7 +136,7 @@ export class CacheService implements OnModuleDestroy {
       return result === 'OK';
     } catch (err) {
       this.logger.warn(
-        `cache setIfAbsent failed for ${key}: ${err instanceof Error ? err.message : err}`,
+        `cache setIfAbsent failed for ${key}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return true;
     }

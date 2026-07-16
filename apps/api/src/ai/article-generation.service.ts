@@ -7,6 +7,7 @@ import {
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
@@ -343,6 +344,139 @@ export class ArticleGenerationService implements OnModuleInit {
       });
       // Intentionally not rethrown — see method docstring.
     }
+  }
+
+  // --- Stuck-job recovery ----------------------------------------------------
+  //
+  // run() records `failed` only for errors it can catch. A hard crash, OOM, or
+  // redeploy mid-generation leaves the row `running` forever: the redelivered
+  // queue message no-ops against the pending→running claim and is acked, so
+  // nothing ever finishes the job, the user's monthly AI slot stays consumed,
+  // and an autopilot item shows "generating" indefinitely. This sweep is the
+  // recovery path the claim design otherwise lacks.
+
+  /**
+   * A job `running` longer than this is presumed interrupted. Real generations
+   * finish well inside it — every provider call carries its own timeout (the
+   * slowest legitimate path is a long article plus 4 Recraft calls at 30s each).
+   */
+  private static readonly STUCK_RUNNING_MS = 30 * 60 * 1000;
+  /** A job still `pending` after this long lost its queue message. */
+  private static readonly STALE_PENDING_MS = 15 * 60 * 1000;
+  /** Pending jobs older than this are abandoned outright instead of re-queued. */
+  private static readonly ABANDONED_PENDING_MS = 24 * 60 * 60 * 1000;
+
+  private reaping = false;
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async reapStuckJobs(): Promise<void> {
+    // Re-entrancy guard: with RabbitMQ off, re-dispatch runs generations inline
+    // and a sweep can outlive the cron interval. Never throws — this is also
+    // awaited from the external /internal/cron/tick fan-out.
+    if (this.reaping) return;
+    this.reaping = true;
+    try {
+      await this.failInterruptedJobs();
+      await this.redispatchStalePendingJobs();
+    } catch (err) {
+      this.logger.warn(`stuck-job sweep failed: ${errMessage(err)}`);
+    } finally {
+      this.reaping = false;
+    }
+  }
+
+  private async failInterruptedJobs(): Promise<void> {
+    const cutoff = new Date(
+      Date.now() - ArticleGenerationService.STUCK_RUNNING_MS,
+    );
+    const stuck = await this.prisma.articleJob.findMany({
+      where: { status: 'running', startedAt: { lt: cutoff } },
+      select: { id: true, authorId: true, topic: true, contentPlanId: true },
+      take: 20,
+    });
+    for (const job of stuck) {
+      await this.failStrandedJob(
+        job,
+        'running',
+        'Generation was interrupted by a server restart',
+      );
+    }
+  }
+
+  private async redispatchStalePendingJobs(): Promise<void> {
+    const now = Date.now();
+    const staleCutoff = new Date(
+      now - ArticleGenerationService.STALE_PENDING_MS,
+    );
+    const abandonedCutoff = new Date(
+      now - ArticleGenerationService.ABANDONED_PENDING_MS,
+    );
+
+    // Pending for a day means re-dispatches haven't landed either — stop
+    // retrying and surface the failure.
+    const abandoned = await this.prisma.articleJob.findMany({
+      where: { status: 'pending', createdAt: { lt: abandonedCutoff } },
+      select: { id: true, authorId: true, topic: true, contentPlanId: true },
+      take: 20,
+    });
+    for (const job of abandoned) {
+      await this.failStrandedJob(
+        job,
+        'pending',
+        'Generation never started (queue unavailable)',
+      );
+    }
+
+    // Lost message: enqueue again. Duplicates are harmless — only the delivery
+    // that wins the pending→running claim in run() generates.
+    const stale = await this.prisma.articleJob.findMany({
+      where: {
+        status: 'pending',
+        createdAt: { lt: staleCutoff, gte: abandonedCutoff },
+      },
+      select: { id: true },
+      take: 20,
+    });
+    for (const { id } of stale) {
+      this.logger.warn(`re-dispatching stale pending job ${id}`);
+      await this.dispatch(id).catch((err) =>
+        this.logger.warn(`re-dispatch of ${id} failed: ${errMessage(err)}`),
+      );
+    }
+  }
+
+  private async failStrandedJob(
+    job: {
+      id: string;
+      authorId: string;
+      topic: string;
+      contentPlanId: string | null;
+    },
+    fromStatus: 'running' | 'pending',
+    error: string,
+  ): Promise<void> {
+    // Atomic flip: if the generation somehow completes concurrently (or another
+    // instance reaps first), exactly one transition wins and we bail.
+    const claim = await this.prisma.articleJob.updateMany({
+      where: { id: job.id, status: fromStatus },
+      data: { status: 'failed', error, finishedAt: new Date() },
+    });
+    if (claim.count !== 1) return;
+    this.logger.warn(`reaped stuck ${fromStatus} job ${job.id}: ${error}`);
+
+    // The reserved monthly slot bought the user nothing — give it back.
+    await this.entitlements
+      .releaseAiGeneration(job.authorId)
+      .catch(() => undefined);
+    if (job.contentPlanId) await this.syncPlanItem(job.id, 'failed');
+
+    await this.notifications.emit(job.authorId, {
+      type: NotificationType.ArticleFailed,
+      title: 'Article generation failed',
+      body: `“${job.topic}” couldn’t be generated: ${error}`,
+      link: job.contentPlanId ? `/autopilot/${job.contentPlanId}` : '/blogs',
+      meta: { jobId: job.id, planId: job.contentPlanId },
+    });
   }
 
   /**

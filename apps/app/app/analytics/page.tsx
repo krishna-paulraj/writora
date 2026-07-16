@@ -11,6 +11,7 @@ import {
   MinusIcon,
 } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
+import { Button } from "@/components/ui/button";
 import {
   Area,
   AreaChart,
@@ -80,21 +81,20 @@ export default function AnalyticsPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [blogs, setBlogs] = useState<BlogRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${API_URL}/analytics/dashboard`, { credentials: "include" }).then(
-        (r) => r.json(),
-      ),
-      fetch(`${API_URL}/analytics/blogs`, { credentials: "include" }).then(
-        (r) => r.json(),
-      ),
-    ])
+    const getJson = async (path: string) => {
+      const r = await fetch(`${API_URL}${path}`, { credentials: "include" });
+      if (!r.ok) throw new Error(`${path} responded ${r.status}`);
+      return r.json();
+    };
+    Promise.all([getJson("/analytics/dashboard"), getJson("/analytics/blogs")])
       .then(([s, b]) => {
         setStats(s);
         setBlogs(b);
       })
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -104,6 +104,20 @@ export default function AnalyticsPage() {
       blogs.reduce((sum, b) => sum + b.readTime, 0) / blogs.length,
     );
   }, [blogs]);
+
+  if (error || (!loading && !stats)) {
+    return (
+      <>
+        <SiteHeader title="Analytics" />
+        <div className="text-muted-foreground flex flex-col items-center gap-3 p-10 text-sm">
+          <p>Failed to load analytics.</p>
+          <Button variant="outline" size="sm" onClick={() => location.reload()}>
+            Retry
+          </Button>
+        </div>
+      </>
+    );
+  }
 
   if (loading || !stats) {
     return (

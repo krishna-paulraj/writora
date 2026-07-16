@@ -35,6 +35,13 @@ export interface CmsPublishEvent {
 
 type BlogWithAuthor = Blog & { author: { username: string } };
 
+/**
+ * Raised when a redelivered auto-publish is suppressed because a previous
+ * attempt's outcome is unknown and the platform can't create idempotently —
+ * recorded as a failure (needs manual review) rather than risking a duplicate.
+ */
+class InterruptedPublishError extends Error {}
+
 @Injectable()
 export class PublishService {
   private readonly logger = new Logger(PublishService.name);
@@ -318,6 +325,26 @@ export class PublishService {
       );
       const existing = await this.prisma.publishRecord.findUnique({ where });
 
+      // At-most-once guard for the redelivery path: a `pending` row with no
+      // externalId means a previous attempt was interrupted around the remote
+      // create — the post may or may not exist remotely. For adapters without
+      // idempotent creates (Dev.to, X), retrying risks a duplicate public
+      // post, so fail closed to needs-review instead; the user can re-publish
+      // manually after checking the destination. (WordPress proceeds — the
+      // connector dedupes by blog id, so the retry updates, not duplicates.)
+      if (
+        opts.reserve &&
+        existing?.status === 'pending' &&
+        !existing.externalId &&
+        !adapter.idempotentCreate
+      ) {
+        throw new InterruptedPublishError(
+          'A previous publish attempt was interrupted before its outcome was ' +
+            'recorded. To avoid posting a duplicate, this was not retried ' +
+            'automatically — check the destination, then publish manually.',
+        );
+      }
+
       // Reserve the row before the remote call on the redelivery-prone path.
       // `update: {}` is intentional: an existing row (and its externalId) is
       // left untouched — we only want an intent marker when none exists yet.
@@ -453,7 +480,11 @@ export class PublishService {
     try {
       await this.prisma.publishTarget.update({
         where: { id: targetId },
-        data: { lastPublishAt: new Date(), lastStatus: status, lastError: error },
+        data: {
+          lastPublishAt: new Date(),
+          lastStatus: status,
+          lastError: error,
+        },
       });
     } catch (err) {
       this.logger.warn(

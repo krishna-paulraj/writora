@@ -3,6 +3,7 @@ import { EntitlementsService } from './entitlements.service';
 
 describe('EntitlementsService', () => {
   let prisma: any;
+  let cache: any;
   let service: EntitlementsService;
 
   beforeEach(() => {
@@ -11,7 +12,8 @@ describe('EntitlementsService', () => {
       site: { count: jest.fn() },
       publishTarget: { count: jest.fn() },
     };
-    service = new EntitlementsService(prisma);
+    cache = { incrWithTtl: jest.fn().mockResolvedValue(1) };
+    service = new EntitlementsService(prisma, cache);
   });
 
   describe('effectivePlan (paid features gated on subscription status)', () => {
@@ -51,9 +53,9 @@ describe('EntitlementsService', () => {
 
       expect(await service.reserveAiGeneration('u1')).toBe(true);
       // The reserve is the 2nd updateMany; its guard uses the free limit (5).
-      expect(prisma.user.updateMany.mock.calls[1][0].where.aiUsageCount).toEqual(
-        { lt: 5 },
-      );
+      expect(
+        prisma.user.updateMany.mock.calls[1][0].where.aiUsageCount,
+      ).toEqual({ lt: 5 });
     });
 
     it('returns false when the monthly limit is already reached', async () => {
@@ -78,9 +80,9 @@ describe('EntitlementsService', () => {
         .mockResolvedValueOnce({ count: 1 });
 
       await service.reserveAiGeneration('u1');
-      expect(prisma.user.updateMany.mock.calls[1][0].where.aiUsageCount).toEqual(
-        { lt: 100 },
-      );
+      expect(
+        prisma.user.updateMany.mock.calls[1][0].where.aiUsageCount,
+      ).toEqual({ lt: 100 });
     });
 
     it('uses only the free limit for a pro user whose subscription lapsed', async () => {
@@ -93,9 +95,9 @@ describe('EntitlementsService', () => {
         .mockResolvedValueOnce({ count: 1 });
 
       await service.reserveAiGeneration('u1');
-      expect(prisma.user.updateMany.mock.calls[1][0].where.aiUsageCount).toEqual(
-        { lt: 5 },
-      );
+      expect(
+        prisma.user.updateMany.mock.calls[1][0].where.aiUsageCount,
+      ).toEqual({ lt: 5 });
     });
   });
 
@@ -134,6 +136,73 @@ describe('EntitlementsService', () => {
       });
       prisma.site.count.mockResolvedValue(2); // pro allows 5
       await expect(service.assertCanCreateSite('u1')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('assertKeywordResearch (DataForSEO credits are paid-plan only)', () => {
+    it('blocks the free plan', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        plan: 'free',
+        subscriptionStatus: null,
+      });
+      await expect(service.assertKeywordResearch('u1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('allows an active pro plan', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        plan: 'pro',
+        subscriptionStatus: 'active',
+      });
+      await expect(
+        service.assertKeywordResearch('u1'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('blocks a pro plan whose subscription lapsed', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        plan: 'pro',
+        subscriptionStatus: 'canceled',
+      });
+      await expect(service.assertKeywordResearch('u1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
+  describe('assertAiAssist (daily windowed meter)', () => {
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue({
+        plan: 'free',
+        subscriptionStatus: null,
+      });
+    });
+
+    it('allows a call under the daily allowance', async () => {
+      cache.incrWithTtl.mockResolvedValue(50); // at the free limit, not over
+      await expect(service.assertAiAssist('u1')).resolves.toBeUndefined();
+    });
+
+    it('throws once the daily allowance is exceeded', async () => {
+      cache.incrWithTtl.mockResolvedValue(51);
+      await expect(service.assertAiAssist('u1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('fails open when Redis is unavailable (self-host without metering)', async () => {
+      cache.incrWithTtl.mockResolvedValue(null);
+      await expect(service.assertAiAssist('u1')).resolves.toBeUndefined();
+    });
+
+    it('meters against a user+day key', async () => {
+      cache.incrWithTtl.mockResolvedValue(1);
+      await service.assertAiAssist('u1');
+      expect(cache.incrWithTtl).toHaveBeenCalledWith(
+        expect.stringMatching(/^ai:assist:u1:\d{4}-\d{2}-\d{2}$/),
+        24 * 60 * 60,
+      );
     });
   });
 });

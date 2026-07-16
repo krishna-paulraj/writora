@@ -80,7 +80,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetch(`${API_URL}/analytics/dashboard`, { credentials: "include" })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`dashboard responded ${res.status}`);
+        return res.json();
+      })
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -242,7 +245,8 @@ export default function DashboardPage() {
             <div className="grid flex-1 gap-1">
               <CardTitle>Blog Views</CardTitle>
               <CardDescription>
-                Showing total views for the last 30 days
+                Showing total views for the last{" "}
+                {timeRange === "7d" ? 7 : timeRange === "14d" ? 14 : 30} days
               </CardDescription>
             </div>
             <Select value={timeRange} onValueChange={setTimeRange}>

@@ -19,7 +19,7 @@ export class ContentPlanSchedulerService {
       await this.contentPlans.runDuePlans();
     } catch (err) {
       this.logger.error(
-        `runDuePlans failed: ${err instanceof Error ? err.message : err}`,
+        `runDuePlans failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
       this.running = false;

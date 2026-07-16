@@ -4,12 +4,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 
 function genToken(): string {
   return randomBytes(32).toString('hex');
+}
+
+// Confirm tokens are stored hashed (like auth's reset/verify tokens) so a
+// read-only DB leak doesn't yield working confirmation links; 256 bits of
+// entropy makes unsalted SHA-256 sufficient and keeps lookup an indexed
+// equality. Unsubscribe tokens are deliberately NOT hashed: every newsletter
+// blast must embed the raw token in its footer link, so the value has to stay
+// recoverable (worst case of a leak there is an unwanted unsubscribe).
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }
 
 @Injectable()
@@ -62,17 +72,24 @@ export class SubscriberService {
       return { ok: true };
     }
 
-    const confirmToken = existing?.confirmToken ?? genToken();
-    const unsubscribeToken = existing?.unsubscribeToken ?? genToken();
+    // The raw token only ever exists in the email link; the row keeps its
+    // hash. On a repeat subscribe we can't recover the raw value to re-send,
+    // so rotate: the newest email's link wins, older ones die.
+    const confirmToken = genToken();
 
-    if (!existing) {
+    if (existing) {
+      await this.prisma.subscriber.update({
+        where: { id: existing.id },
+        data: { confirmToken: hashToken(confirmToken) },
+      });
+    } else {
       await this.prisma.subscriber.create({
         data: {
           authorId: author.id,
           siteId,
           email: normalized,
-          confirmToken,
-          unsubscribeToken,
+          confirmToken: hashToken(confirmToken),
+          unsubscribeToken: genToken(),
         },
       });
     }
@@ -88,8 +105,10 @@ export class SubscriberService {
   }
 
   async confirm(token: string) {
-    const record = await this.prisma.subscriber.findUnique({
-      where: { confirmToken: token },
+    // Hashed lookup, with a raw-value fallback so confirmation links emailed
+    // before hashing shipped keep working (their rows store the raw token).
+    const record = await this.prisma.subscriber.findFirst({
+      where: { confirmToken: { in: [hashToken(token), token] } },
       include: { author: { select: { name: true, username: true } } },
     });
     if (!record) throw new BadRequestException('Invalid confirmation link');

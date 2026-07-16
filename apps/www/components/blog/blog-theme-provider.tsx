@@ -1,8 +1,13 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { themes } from "@/lib/themes-config";
+
+// A subscription that never fires: with server snapshot false and client
+// snapshot true, useSyncExternalStore yields a hydration-safe "mounted" flag
+// without the classic setState-in-effect pattern.
+const emptySubscribe = () => () => {};
 
 interface BlogThemeProviderProps {
   themeId: string;
@@ -44,9 +49,11 @@ export function BlogThemeProvider({
   children,
 }: BlogThemeProviderProps) {
   const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
 
   useEffect(() => {
     if (!themeId || themeId === "default") return;

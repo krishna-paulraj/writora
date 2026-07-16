@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import Link from "next/link";
+
 import { Check, ChevronsUpDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -16,30 +18,36 @@ interface FeatureSection {
   features: {
     name: string;
     free: true | false | null | string;
-    startup: true | false | null | string;
-    enterprise: true | false | null | string;
+    pro: true | false | null | string;
+    business: true | false | null | string;
   }[];
 }
 
 const pricingPlans = [
   {
     name: "Free",
+    price: "$0",
     button: {
-      text: "Get started",
+      text: "Start for free",
+      href: "/signup",
       variant: "outline" as const,
     },
   },
   {
-    name: "Startup",
+    name: "Pro",
+    price: "$19/mo",
     button: {
-      text: "Get started",
-      variant: "outline" as const,
+      text: "Start with Pro",
+      href: "/signup?plan=pro",
+      variant: "default" as const,
     },
   },
   {
-    name: "Enterprise",
+    name: "Business",
+    price: "$49/mo",
     button: {
-      text: "Get a demo",
+      text: "Start with Business",
+      href: "/signup?plan=business",
       variant: "outline" as const,
     },
   },
@@ -50,22 +58,22 @@ const comparisonFeatures: FeatureSection[] = [
     category: "Usage",
     features: [
       {
-        name: "Members",
-        free: "Unlimited",
-        startup: "Unlimited",
-        enterprise: "Unlimited",
+        name: "Sites",
+        free: "1",
+        pro: "5",
+        business: "25",
       },
       {
-        name: "Transactions",
-        free: "250",
-        startup: "Unlimited",
-        enterprise: "Unlimited",
+        name: "AI articles per month",
+        free: "5",
+        pro: "100",
+        business: "1,000",
       },
       {
-        name: "Teams",
-        free: "2",
-        startup: "Unlimited",
-        enterprise: "Unlimited",
+        name: "Publish destinations (WordPress, Dev.to, X)",
+        free: false,
+        pro: "10",
+        business: "100",
       },
     ],
   },
@@ -73,69 +81,46 @@ const comparisonFeatures: FeatureSection[] = [
     category: "Features",
     features: [
       {
-        name: "Reporting",
+        name: "Keyword research",
+        free: false,
+        pro: true,
+        business: true,
+      },
+      {
+        name: "SEO scoring",
         free: true,
-        startup: true,
-        enterprise: true,
+        pro: true,
+        business: true,
+      },
+      {
+        name: "Autopilot content plans",
+        free: false,
+        pro: true,
+        business: true,
+      },
+      {
+        name: "Custom domains",
+        free: false,
+        pro: true,
+        business: true,
+      },
+      {
+        name: "Backlink network",
+        free: false,
+        pro: true,
+        business: true,
+      },
+      {
+        name: "Email subscribers + newsletter",
+        free: true,
+        pro: true,
+        business: true,
       },
       {
         name: "Analytics",
         free: true,
-        startup: true,
-        enterprise: true,
-      },
-      {
-        name: "Import and export",
-        free: true,
-        startup: true,
-        enterprise: true,
-      },
-      {
-        name: "Integrations",
-        free: true,
-        startup: true,
-        enterprise: true,
-      },
-      {
-        name: "Mainline AI",
-        free: null,
-        startup: true,
-        enterprise: true,
-      },
-      {
-        name: "Admin roles",
-        free: null,
-        startup: null,
-        enterprise: true,
-      },
-      {
-        name: "Audit log",
-        free: null,
-        startup: null,
-        enterprise: true,
-      },
-    ],
-  },
-  {
-    category: "Support",
-    features: [
-      {
-        name: "Priority Support",
-        free: true,
-        startup: true,
-        enterprise: true,
-      },
-      {
-        name: "Account Manager",
-        free: null,
-        startup: null,
-        enterprise: true,
-      },
-      {
-        name: "Uptime SLA",
-        free: null,
-        startup: null,
-        enterprise: true,
+        pro: true,
+        business: true,
       },
     ],
   },
@@ -146,7 +131,7 @@ const renderFeatureValue = (value: true | false | null | string) => {
     return <Check className="size-5" />;
   }
   if (value === false) {
-    return <X className="size-5" />;
+    return <X className="text-muted-foreground size-5" />;
   }
   if (value === null) {
     return null;
@@ -161,7 +146,7 @@ const renderFeatureValue = (value: true | false | null | string) => {
 };
 
 export const PricingTable = () => {
-  const [selectedPlan, setSelectedPlan] = useState(1); // Default to Startup plan
+  const [selectedPlan, setSelectedPlan] = useState(1); // Default to Pro plan
 
   return (
     <section className="pb-28 lg:py-32">
@@ -186,15 +171,18 @@ const PlanHeaders = ({
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className="">
+    <div>
       {/* Mobile View */}
       <div className="md:hidden">
-        <Collapsible open={isOpen} onOpenChange={setIsOpen} className="">
+        <Collapsible open={isOpen} onOpenChange={setIsOpen}>
           <div className="flex items-center justify-between border-b py-4">
             <CollapsibleTrigger className="flex items-center gap-2">
               <h3 className="text-2xl font-semibold">
                 {pricingPlans[selectedPlan].name}
               </h3>
+              <span className="text-muted-foreground text-sm">
+                {pricingPlans[selectedPlan].price}
+              </span>
               <ChevronsUpDown
                 className={`size-5 transition-transform ${isOpen ? "rotate-180" : ""}`}
               />
@@ -202,8 +190,11 @@ const PlanHeaders = ({
             <Button
               variant={pricingPlans[selectedPlan].button.variant}
               className="w-fit"
+              asChild
             >
-              {pricingPlans[selectedPlan].button.text}
+              <Link href={pricingPlans[selectedPlan].button.href}>
+                {pricingPlans[selectedPlan].button.text}
+              </Link>
             </Button>
           </div>
           <CollapsibleContent className="flex flex-col space-y-2 p-2">
@@ -232,10 +223,11 @@ const PlanHeaders = ({
         <div className="col-span-1 max-md:hidden"></div>
 
         {pricingPlans.map((plan, index) => (
-          <div key={index} className="">
-            <h3 className="mb-3 text-2xl font-semibold">{plan.name}</h3>
-            <Button variant={plan.button.variant} className="">
-              {plan.button.text}
+          <div key={index}>
+            <h3 className="mb-1 text-2xl font-semibold">{plan.name}</h3>
+            <p className="text-muted-foreground mb-3 text-sm">{plan.price}</p>
+            <Button variant={plan.button.variant} asChild>
+              <Link href={plan.button.href}>{plan.button.text}</Link>
             </Button>
           </div>
         ))}
@@ -247,7 +239,7 @@ const PlanHeaders = ({
 const FeatureSections = ({ selectedPlan }: { selectedPlan: number }) => (
   <>
     {comparisonFeatures.map((section, sectionIndex) => (
-      <div key={sectionIndex} className="">
+      <div key={sectionIndex}>
         <div className="border-primary/40 border-b py-4">
           <h3 className="text-lg font-semibold">{section.category}</h3>
         </div>
@@ -263,24 +255,17 @@ const FeatureSections = ({ selectedPlan }: { selectedPlan: number }) => (
             <div className="md:hidden">
               <div className="flex items-center gap-1 py-4 md:border-b">
                 {renderFeatureValue(
-                  [feature.free, feature.startup, feature.enterprise][
-                    selectedPlan
-                  ],
+                  [feature.free, feature.pro, feature.business][selectedPlan],
                 )}
               </div>
             </div>
             {/* Desktop View - All Plans */}
             <div className="hidden md:col-span-3 md:grid md:grid-cols-3 md:gap-4">
-              {[feature.free, feature.startup, feature.enterprise].map(
-                (value, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-1 border-b py-4"
-                  >
-                    {renderFeatureValue(value)}
-                  </div>
-                ),
-              )}
+              {[feature.free, feature.pro, feature.business].map((value, i) => (
+                <div key={i} className="flex items-center gap-1 border-b py-4">
+                  {renderFeatureValue(value)}
+                </div>
+              ))}
             </div>
           </div>
         ))}

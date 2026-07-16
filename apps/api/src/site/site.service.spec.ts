@@ -118,9 +118,9 @@ describe('SiteService', () => {
       ['no-tld'],
       ['has space.com'],
     ])('rejects the malformed domain %p', async (domain) => {
-      await expect(
-        service.setCustomDomain('u1', 's1', domain),
-      ).rejects.toThrow(/valid domain/);
+      await expect(service.setCustomDomain('u1', 's1', domain)).rejects.toThrow(
+        /valid domain/,
+      );
       expect(prisma.site.update).not.toHaveBeenCalled();
     });
 

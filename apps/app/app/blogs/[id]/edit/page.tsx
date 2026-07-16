@@ -132,31 +132,30 @@ export default function EditBlogPage() {
   const params = useParams();
   const id = params.id as string;
   const [saveStatus, setSaveStatus] = useState<
-    "idle" | "saving" | "saved" | "dirty" | "error"
+    "idle" | "saving" | "saved" | "error"
   >("idle");
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [form, setForm] = useState<BlogForm>(EMPTY_FORM);
   const [seo, setSeo] = useState<SeoScoreResult | null>(null);
-  const lastSavedRef = useRef<BlogForm | null>(null);
+  // State (not a ref): isDirty derives from it during render, and refs must
+  // not be read while rendering.
+  const [lastSaved, setLastSaved] = useState<BlogForm | null>(null);
   const inFlightRef = useRef(false);
 
   const isDirty = useMemo(
-    () =>
-      lastSavedRef.current ? !formsEqual(form, lastSavedRef.current) : false,
-    [form],
+    () => (lastSaved ? !formsEqual(form, lastSaved) : false),
+    [form, lastSaved],
   );
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${API_URL}/blogs/${id}`, { credentials: "include" }).then((r) =>
-        r.json(),
-      ),
-      fetch(`${API_URL}/auth/me`, { credentials: "include" }).then((r) =>
-        r.json(),
-      ),
-    ])
+    const getJson = async (path: string) => {
+      const r = await fetch(`${API_URL}${path}`, { credentials: "include" });
+      if (!r.ok) throw new Error(`${path} responded ${r.status}`);
+      return r.json();
+    };
+    Promise.all([getJson(`/blogs/${id}`), getJson("/auth/me")])
       .then(([blog, profile]) => {
         const initial: BlogForm = {
           title: blog.title || "",
@@ -172,16 +171,21 @@ export default function EditBlogPage() {
           scheduledAt: blog.scheduledAt || null,
         };
         setForm(initial);
-        lastSavedRef.current = initial;
+        setLastSaved(initial);
         setUser({ username: profile.username });
       })
+      .catch(() => {
+        // A blank "Untitled" editor over a post that failed to load invites
+        // overwriting real content with an empty draft — bail out instead.
+        toast.error("Couldn't load this post.");
+        router.push("/blogs");
+      })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, router]);
 
-  // Mark UI as dirty when the form diverges from last saved
-  useEffect(() => {
-    if (isDirty && saveStatus !== "saving") setSaveStatus("dirty");
-  }, [isDirty, saveStatus]);
+  // The "dirty" indicator is derived at render time (below) rather than
+  // synced into saveStatus by an effect — saveStatus only tracks the save
+  // lifecycle itself (saving/saved/error).
 
   const persist = async (
     payload: BlogForm,
@@ -202,7 +206,7 @@ export default function EditBlogPage() {
         if (!opts.silent) toast.error("Failed to save");
         return false;
       }
-      lastSavedRef.current = payload;
+      setLastSaved(payload);
       setSaveStatus("saved");
       if (opts.successMessage) toast.success(opts.successMessage);
       return true;
@@ -252,11 +256,15 @@ export default function EditBlogPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  // Flush a final save on client-side navigation away
+  // Flush a final save on client-side navigation away. The refs mirror the
+  // latest values for the unmount closure; they're written in an effect
+  // (post-commit) because refs must not be touched during render.
   const formRef = useRef(form);
   const dirtyRef = useRef(isDirty);
-  formRef.current = form;
-  dirtyRef.current = isDirty;
+  useEffect(() => {
+    formRef.current = form;
+    dirtyRef.current = isDirty;
+  }, [form, isDirty]);
   useEffect(() => {
     return () => {
       if (dirtyRef.current && formRef.current.title) {
@@ -443,7 +451,7 @@ export default function EditBlogPage() {
               <span className="text-muted-foreground/80 ml-1 text-xs">
                 {saveStatus === "saving"
                   ? "Saving…"
-                  : saveStatus === "dirty"
+                  : isDirty
                     ? "Unsaved changes"
                     : saveStatus === "saved"
                       ? "Saved"

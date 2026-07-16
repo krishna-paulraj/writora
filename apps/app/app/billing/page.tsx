@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { CheckIcon, Loader2Icon } from "lucide-react";
@@ -88,6 +88,22 @@ function BillingInner() {
       setBusy(null);
     }
   };
+
+  // Deep link from the marketing site's pricing (signup?plan=… →
+  // /billing?plan=…): start checkout for the requested plan as soon as
+  // entitlements load, exactly once, unless the account already has it.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    const requested = params.get("plan");
+    if (!ent || autoStarted.current) return;
+    if (requested !== "pro" && requested !== "business") return;
+    autoStarted.current = true;
+    if (ent.plan === requested) return;
+    // Deferred a tick: starting checkout flips `busy` state, which must not
+    // happen synchronously inside the effect.
+    const t = setTimeout(() => void upgrade(requested), 0);
+    return () => clearTimeout(t);
+  }, [ent, params]);
 
   const manage = async () => {
     setBusy("portal");

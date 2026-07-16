@@ -44,6 +44,8 @@ function trimTo(text: string, max: number): string {
 @Injectable()
 export class XAdapter implements PublishAdapter {
   readonly platform = 'x';
+  // Posting a tweet has no idempotency key — a blind retry double-posts.
+  readonly idempotentCreate = false;
   private readonly logger = new Logger(XAdapter.name);
 
   constructor(private readonly ai: AiService) {}
